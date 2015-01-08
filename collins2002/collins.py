@@ -362,7 +362,8 @@ def learn(opts):
                 if answer[j] != reference[j] or answer[j+1] != reference[j+1]:
                     update(w, wsum, wtime, B[reference[j], reference[j+1]], now, 1)
                     update(w, wsum, wtime, B[answer[j], answer[j+1]], now, -1)
-            destroy_instance(instance)
+            if not opts.cached:
+                destroy_instance(instance)
 
         flush(w, wsum, wtime, (iteration+1)*N)
         print >> sys.stderr, ("done(%s)" % datetime.strftime(datetime.now(), "%H:%M:%S")),
@@ -395,6 +396,8 @@ def init_learn_opt():
     parser.add_option("-t", "--train", dest="train", help="the training data.")
     parser.add_option("-d", "--devel", dest="devel", help="the develop data.")
     parser.add_option("-m", "--model", dest="model", help="the model file path.")
+    parser.add_option("-c", "--cached", dest="cached", action="store_true", default=False,
+            help="cache the data feature, large mem consumption.")
     parser.add_option("-i", "--iteration", dest="iteration", default=10, type=int, 
             help="specify number of iteration")
     return parser

@@ -54,27 +54,16 @@ def build_feature_space(instances):
     inverse_labels_alphabet = {}
 
     for instance in instances:
-        for attrs, labels in instance.items:
+        for attrs, label in instance.items:
             for attr in attrs:
                 if attr not in attrs_alphabet:
                     attrs_alphabet[attr] = len(attrs_alphabet)
-            for label in labels:
-                if label not in labels_alphabet:
-                    labels_alphabet[label] = len(labels_alphabet)
+            if label not in labels_alphabet:
+                labels_alphabet[label] = len(labels_alphabet)
     T = len(labels_alphabet)
     for key, value in labels_alphabet.iteritems():
         inverse_labels_alphabet[value] = key
 
-    for instance in instances:
-        L = len(instance.items)
-        instance.M = M = zeros((L, T), dtype=bool)
-        for i in xrange(L):
-            attrs, labels = instance.items[i]
-            for o in xrange(T):
-                if inverse_labels_alphabet[o] in labels:
-                    M[i,o] = True
-                else:
-                    M[i,o] = False
     return attrs_alphabet, labels_alphabet
 
 
@@ -282,7 +271,7 @@ def evaluate(opts, model):
     corr_tags, total_tags = 0, 0
     for instance in instances:
         answer = [keys[t] for t in viterbi(model, instance)]
-        reference = [label[0] for attr, label in instance.items]
+        reference = [label for attr, label in instance.items]
 
         for a, r in zip(answer, reference):
             if a == r:
@@ -359,7 +348,7 @@ def learn(opts):
 
             build_instance(attrs_alphabet, labels_alphabet, instance)
             answer = viterbi(model, instance)
-            reference = [labels_alphabet[label[0]] for attr, label in instance.items]
+            reference = [labels_alphabet[label] for attr, label in instance.items]
 
             U = instance.unigram_feature_table
             B = instance.bigram_feature_table
@@ -379,7 +368,8 @@ def learn(opts):
         print >> sys.stderr, ("done(%s)" % datetime.strftime(datetime.now(), "%H:%M:%S")),
         print >> sys.stderr, ("|w| = %f" % linalg.norm(w))
         model.w = wsum
-        print >> sys.stderr, "iteration %d, evalute tagging accuracy = %f" % evaluate(opts, model)
+        print >> sys.stderr, "iteration %d, evalute tagging accuracy = %f" % (iteration,
+                evaluate(opts, model))
         model.w = w
 
     try:

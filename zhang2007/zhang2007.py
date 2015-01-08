@@ -1,5 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+__author__ = "Yijia Liu"
+__email__ = "oneplus.lau@gmail.com"
+
 from heapq import heappush, heappop, heappushpop
 from optparse import OptionParser
 

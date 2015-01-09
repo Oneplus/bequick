@@ -190,7 +190,7 @@ def argmax(g0, g, L, T):
     return s, p
 
 
-def viterbi(model, instance):
+def viterbi(model, avg, instance):
     '''
     The viterbi decoding process
 
@@ -198,6 +198,8 @@ def viterbi(model, instance):
     ----------
     model : CRF
         The CRF model
+    avg : bool
+        If use averaged parameters
     instance : Instance
         The instances
 
@@ -211,7 +213,7 @@ def viterbi(model, instance):
     A = len(model.attrs_alphabet)
 
     build_instance(model.attrs_alphabet, model.labels_alphabet, instance)
-    g0, g = build_score_cache(model.w, L, T, A, instance)
+    g0, g = build_score_cache(model.wsum if avg else model.w, L, T, A, instance)
 
     s, p = argmax(g0, g, L, T)
     v, i = s[L -1].argmax(), L -1
@@ -248,7 +250,7 @@ def tag(opts):
         keys[v] = k
 
     for instance in instances:
-        predict = viterbi(model, instance)
+        predict = viterbi(model, True, instance)
         for index, item in enumerate(instance.items):
             attrs, label = item
             print "%s" % keys[predict[index]]
@@ -270,7 +272,7 @@ def evaluate(opts, model):
 
     corr_tags, total_tags = 0, 0
     for instance in instances:
-        answer = [keys[t] for t in viterbi(model, instance)]
+        answer = [keys[t] for t in viterbi(model, True, instance)]
         reference = [label for attr, label in instance.items]
 
         for a, r in zip(answer, reference):
@@ -332,6 +334,7 @@ def learn(opts):
     model.labels_alphabet = labels_alphabet
     model.attrs_alphabet  = attrs_alphabet
     model.w = w
+    model.wsum = wsum
 
     keys = ["" for _ in xrange(len(model.labels_alphabet))]
     for k, v in model.labels_alphabet.iteritems():
@@ -347,7 +350,7 @@ def learn(opts):
                 print >> sys.stderr, ("%d"%(hoc/2+1) if hoc&1 else "."),
 
             build_instance(attrs_alphabet, labels_alphabet, instance)
-            answer = viterbi(model, instance)
+            answer = viterbi(model, False, instance)
             reference = [labels_alphabet[label] for attr, label in instance.items]
 
             U = instance.unigram_feature_table
@@ -368,10 +371,8 @@ def learn(opts):
         flush(w, wsum, wtime, (iteration+1)*N)
         print >> sys.stderr, ("done(%s)" % datetime.strftime(datetime.now(), "%H:%M:%S")),
         print >> sys.stderr, ("|w| = %f" % linalg.norm(w))
-        model.w = wsum
         print >> sys.stderr, "iteration %d, evalute tagging accuracy = %f" % (iteration,
                 evaluate(opts, model))
-        model.w = w
 
     try:
         fpo=open(opts.model, "wb")

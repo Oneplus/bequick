@@ -13,13 +13,15 @@ if sys.argv[1] != "-" and sys.argv[2] == "-":
     fp2 = sys.stdin
 else:
     try:
-        fp2 = open(sys.argv[1], "r")
+        fp2 = open(sys.argv[2], "r")
     except:
         print >> sys.stderr, "failed to open file."
         sys.exit(1)
 
 references = [data.split("\n") for data in fp1.read().strip().split("\n\n")]
 answers = [data.split("\n") for data in fp2.read().strip().split("\n\n")]
+
+assert len(references) == len(answers), "number of instance is not equal: (%d,%d)" % (len(references), len(answers))
 
 nr_instances = 0
 nr_lines = 0

@@ -95,9 +95,17 @@ def generate_candidate_constituents(t, predicate):
         for i in xrange(0, parent_index):
             left_sibling = now._parent[i]
             retval.append(left_sibling)
+            phrase = left_sibling.label().split("-")[0]
+            if phrase == "PP":
+                for kid in left_sibling:
+                    retval.append(kid)
         for i in xrange(parent_index+ 1, len(now._parent)):
             right_sibling = now._parent[i]
             retval.append(right_sibling)
+            phrase = right_sibling.label().split("-")[0]
+            if phrase == "PP":
+                for kid in right_sibling:
+                    retval.append(kid)
         now = now.parent()
     return retval
 

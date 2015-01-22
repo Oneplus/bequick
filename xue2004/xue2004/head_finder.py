@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+import sys
 from constituent import Constituent
 
 class AbstractHeadFindingRules(object):
@@ -10,7 +11,7 @@ class AbstractHeadFindingRules(object):
 
     def determine_head(self, t, parent=None):
         if t is None or t.terminal():
-            raise("Can't return head of null or left tree.")
+            raise Exception("Can't return head of null or left tree.")
         the_head = self.find_marked_head(t)
         if the_head is not None:
             return the_head
@@ -21,11 +22,11 @@ class AbstractHeadFindingRules(object):
         return self.determine_nontrival_head(t, parent)
 
     def determine_nontrival_head(self, t, parent):
-        mother_cat = t.label()
+        mother_cat = t.label().split("-")[0]
         how = self.non_terminal_info.get(mother_cat, None)
         if how is None:
             # Should apply default rule.
-            raise("No rules match")
+            raise Exception("No rules match for %s" % mother_cat)
 
         for idx in xrange(len(how)):
             last_resort = (idx == len(how) - 1)
@@ -70,14 +71,16 @@ class AbstractHeadFindingRules(object):
     def find_left_head(self, t, how):
         for cat in how[1:]:
             for hid, kid in enumerate(t):
-                if kid.label() == cat:
+                label = kid.label().split("-")[0]
+                if label == cat:
                     return hid
         return -1
 
     def find_leftdis_head(self, t, how):
         for hid, kid in enumerate(t):
             for cat in how[1:]:
-                if kid.label() == cat:
+                label = kid.label().split("-")[0]
+                if label == cat:
                     return hid
         return -1
 
@@ -85,7 +88,8 @@ class AbstractHeadFindingRules(object):
         for hid, kid in enumerate(t):
             found = True
             for cat in how[1:]:
-                if kid.label() == cat:
+                label = kid.label().split("-")[0]
+                if label == cat:
                     found = False
             if found:
                 return hid
@@ -95,7 +99,8 @@ class AbstractHeadFindingRules(object):
         for cat in how[1:]:
             for hid in xrange(len(t)- 1, -1, -1):
                 kid = t[hid]
-                if kid.label() == cat:
+                label = kid.label().split("-")[0]
+                if label == cat:
                     return hid
         return -1
 
@@ -103,7 +108,8 @@ class AbstractHeadFindingRules(object):
         for hid in xrange(len(t)- 1, -1, -1):
             kid = t[hid]
             for cat in how[1:]:
-                if kid.label() == cat:
+                label = kid.label().split("-")[0]
+                if label == cat:
                     return hid
         return -1
 
@@ -112,7 +118,8 @@ class AbstractHeadFindingRules(object):
             kid = t[hid]
             found = True
             for cat in how[1:]:
-                if kid.label() == cat:
+                label = kid.label().split("-")[0]
+                if label == cat:
                     found = False
             if found:
                 return hid
@@ -162,6 +169,7 @@ XS:right,IN
     def __init__(self):
         super(CollinsHeadFindingRules, self).__init__()
 
+
 class AbstractHeadFinder(object):
     def __init__(self):
         pass
@@ -187,7 +195,7 @@ class AbstractHeadFinder(object):
         tokens: list
             The output tokens.
         '''
-        #print node
+        #print node.pprint(margin=sys.maxint)
         if node.terminal():
             node.head_word = node[0]
         else:

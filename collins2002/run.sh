@@ -4,12 +4,12 @@
 #./extract.py ./wsj.devel.pos > ./wsj.devel.pos.crfsuite.txt
 #./extract.py ./wsj.test.pos  > ./wsj.test.pos.crfsuite.txt
 
-./collins.py learn -t wsj.train.pos.crfsuite.txt \
-    -d wsj.devel.pos.crfsuite.txt \
+./collins.py learn -t wsj.train.pos.crfsuite.txt.gz \
+    -d wsj.devel.pos.crfsuite.txt.gz \
     -m wsj.pos.collins.model \
-    -i 3
+    -i 4
 
-./collins.py tag -d wsj.test.pos.crfsuite.txt \
+./collins.py tag -d wsj.test.pos.crfsuite.txt.gz \
     -m wsj.pos.collins.model > wsj.pos.collins.output
 
 awk '{print $1}' wsj.test.pos.crfsuite.txt | ./eval.py - wsj.pos.collins.output

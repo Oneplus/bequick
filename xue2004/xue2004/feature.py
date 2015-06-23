@@ -2,6 +2,8 @@
 import re
 import sys
 from constituent import Constituent, path
+from nltk.stem import WordNetLemmatizer
+lemmatizer = WordNetLemmatizer()
 
 def _meta_predicate(predicate):
     if predicate.terminal():
@@ -16,6 +18,10 @@ def _meta_predicate_postag(predicate):
     else:
         name = [pos for form, pos in predicate.pos()]
         return "_".join(name)
+
+def _meta_predicate_lemma(predicate):
+    name = predicate.leaves()[0]
+    return lemmatizer.lemmatize(name, pos='v')
 
 def _meta_phrase_type(constituent):
     return constituent.label()
@@ -82,8 +88,11 @@ def _extract_headword_postag(constituent):
 def _extract_predicate(predicate):
     return "PRED=%s" % _meta_predicate(predicate)
 
+def _extract_predicate_lemma(predicate):
+    return "PRED-LEMMA=%s" % _meta_predicate_lemma(predicate)
+
 def _extract_predicate_postag(predicate):
-    return "PRED=%s" % _meta_predicate_postag(predicate)
+    return "PRED-POS=%s" % _meta_predicate_postag(predicate)
 
 def _extract_distance(constituent, predicate):
     return "DIST=%d" % _meta_distance(constituent, predicate)
@@ -137,6 +146,7 @@ def extract_feature(predicate, constituent):
             _extract_headword(constituent),
             _extract_headword_postag(constituent),
             _extract_predicate(predicate),
+            _extract_predicate_lemma(predicate),
             _extract_predicate_postag(predicate),
             _extract_distance(constituent, predicate),
             _extract_predicate_phrase_type_combo(constituent, predicate),

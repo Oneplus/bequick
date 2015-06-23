@@ -1,14 +1,22 @@
 #!/usr/bin/env python
 __author__ = "Yijia Liu"
 __email__ = "oneplus.lau@gmail.com"
-
+import gzip
 import sys
 import math
+import random
 import cPickle as pickle
+import gc
+
 from datetime import datetime
 from optparse import OptionParser
+
 from numpy import array, zeros, sum
 from numpy import linalg
+
+from scipy.sparse import dok_matrix
+
+gc.disable()
 
 class Meta(object):
     pass
@@ -238,7 +246,10 @@ def tag(opts):
         sys.exit(1)
     model = pickle.load(fpm)
     try:
-        fp=open(opts.devel, "r")
+        if opts.devel.endswith('.gz'):
+            fp=gzip.open(opts.devel, 'r')
+        else:
+            fp=open(opts.devel, "r")
     except:
         print >> sys.stderr, "Failed to open test file."
         sys.exit(1)
@@ -259,7 +270,10 @@ def tag(opts):
 
 def evaluate(opts, model):
     try:
-        fp=open(opts.devel, "r")
+        if opts.devel.endswith('.gz'):
+            fp=gzip.open(opts.devel, "r")
+        else:
+            fp=open(opts.devel, 'r')
     except:
         print >> sys.stderr, "WARN: Failed to open test file."
         return
@@ -307,7 +321,10 @@ def learn(opts):
         The options
     '''
     try:
-        fp=open(opts.train, "r")
+        if opts.train.endswith('.gz'):
+            fp=gzip.open(opts.train, 'r')
+        else:
+            fp=open(opts.train, "r")
     except:
         print >> sys.stderr, "Failed to open file."
         sys.exit(1)
@@ -344,6 +361,9 @@ def learn(opts):
     for iteration in xrange(opts.iteration):
         print >> sys.stderr, "iteration %d, start(%s)" % (iteration, 
                 datetime.strftime(datetime.now(), "%H:%M:%S")),
+        if opts.shuffle:
+            random.shuffle(instances)
+
         for i, instance in enumerate(instances):
             hoc=(i+1)*19/N
             if hoc > i*19/N:
@@ -357,14 +377,39 @@ def learn(opts):
             B = instance.bigram_feature_table
             # assert(len(predict) == len(answers))
             now=iteration*N+i+1
+            if opts.algorithm == "pa":
+                s = 0.
+                err = 0.
+                updates = {}
+                for index, (answ, refer) in enumerate(zip(answer, reference)):
+                    if answ != refer:
+                        s += w.take(U[index, refer]).sum() - w.take(U[index, answ]).sum()
+                        err += 1
+                        updates.update((u, 1) for u in U[index, refer])
+                        updates.update((u, -1) for u in U[index, answ])
+
+                for j in xrange(len(answer) - 1):
+                    if answer[j] != reference[j] or answer[j+1] != reference[j+1]:
+                        s += w[B[reference[j], reference[j+1]]] - w[B[answer[j], answer[j+1]]]
+                        updates.update((b, 1) for b in B[reference[j], reference[j+1]])
+                        updates.update((b, -1) for b in B[answer[j], answer[j+1]])
+
+                norm = sum(v*v for k, v in updates.iteritems())
+                if norm == 0:
+                    step = 0
+                else:
+                    step = (s + err) / sum(v*v for k, v in updates.iteritems())
+            else:
+                step = 1
+
             for index, (answ, refer) in enumerate(zip(answer, reference)):
                 if answ != refer:
-                    update(w, wsum, wtime, U[index, refer], now, 1)
-                    update(w, wsum, wtime, U[index, answ], now, -1)
+                    update(w, wsum, wtime, U[index, refer], now, step)
+                    update(w, wsum, wtime, U[index, answ], now, -step)
             for j in xrange(len(answer) - 1):
                 if answer[j] != reference[j] or answer[j+1] != reference[j+1]:
-                    update(w, wsum, wtime, B[reference[j], reference[j+1]], now, 1)
-                    update(w, wsum, wtime, B[answer[j], answer[j+1]], now, -1)
+                    update(w, wsum, wtime, B[reference[j], reference[j+1]], now, step)
+                    update(w, wsum, wtime, B[answer[j], answer[j+1]], now, -step)
             if not opts.cached:
                 destroy_instance(instance)
 
@@ -397,6 +442,9 @@ def init_learn_opt():
     parser.add_option("-t", "--train", dest="train", help="the training data.")
     parser.add_option("-d", "--devel", dest="devel", help="the develop data.")
     parser.add_option("-m", "--model", dest="model", help="the model file path.")
+    parser.add_option("-a", "--algorithm", dest="algorithm", help="the learning algorithm.")
+    parser.add_option("-s", "--shuffle", dest="shuffle", action="store_true", default=False,
+            help="use to specify shuffle the instance.")
     parser.add_option("-c", "--cached", dest="cached", action="store_true", default=False,
             help="cache the data feature, large mem consumption.")
     parser.add_option("-i", "--iteration", dest="iteration", default=10, type=int, 

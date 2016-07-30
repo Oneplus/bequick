@@ -35,4 +35,4 @@ def is_tree(data):
                 return False
         return True
 
-    travel(0) # 0 is root by default.
+    return travel(0) # 0 is root by default.

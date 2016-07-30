@@ -9,6 +9,9 @@ from tb_parser import State, Parser
 from model import Model
 from tree_utils import is_projective, is_tree
 
+logging.basicConfig(level=logging.INFO,
+        format='%(asctime)-15s %(levelname)s: %(message)s'
+)
 
 def evaluate(dataset, parser, model):
     n_uas, n_total = 0, 0
@@ -16,10 +19,11 @@ def evaluate(dataset, parser, model):
         d = [parser.ROOT] + data
         s = State(d)
         while not s.terminate():
-            x = parser.extract_features(s)
-            x = parser.parameterize_X(x, s)
+            ctx = parser.extract_features(s)
+            x = parser.parameterize_X([ctx], s)[0]
             best, best_action = None, None
-            for i, p in enumerate(model.classify(x)):
+            prediction = model.classify(x)[0]
+            for i, p in enumerate(prediction):
                 action = parser.get_action(i)
                 if s.valid(action) and (best is None or p > best):
                     best = p
@@ -41,7 +45,7 @@ def learn():
     conf.add_argument("--development", help="The path to the development file.")
     conf.add_argument("--init-range", dest="init_range", type=float, default=0.01,
                       help="The initialization range.")
-    conf.add_argument("--max-iter", dest="max_iter",type=int, default=20000,
+    conf.add_argument("--max-iter", dest="max_iter",type=int, default=10,
                       help="The number of max iteration.")
     conf.add_argument("--hidden-size", dest="hidden_size", type=int, default=200, help="The size of hidden layer.")
     conf.add_argument("--embedding-size", dest="embedding_size", type=int, default=50, help="The size of embedding.")
@@ -56,10 +60,20 @@ def learn():
     opts = conf.parse_args(sys.argv[2:])
 
     train_dataset = read_dataset(opts.reference)
+    logging.info("Loaded %d training sentences." % len(train_dataset))
+    
     devel_dataset = read_dataset(opts.development)
+    logging.info("Loaded %d development sentences." % len(devel_dataset))
+
     form_alphabet = get_alphabet(train_dataset, 'form')
+    logging.info("# %d forms in alphabet" % len(form_alphabet))
+
     pos_alphabet = get_alphabet(train_dataset, 'pos')
+    logging.info("# %d postags in alphabet" % len(pos_alphabet))
+    
     deprel_alphabet = get_alphabet(train_dataset, 'deprel')
+    logging.info("# %d deprel in alphabet" % len(deprel_alphabet))
+
     parser = Parser(form_alphabet, pos_alphabet, deprel_alphabet)
     model = Model(form_size=len(form_alphabet),
                   form_dim=50,
@@ -70,6 +84,7 @@ def learn():
                   hidden_dim=opts.hidden_size,
                   output_dim=((len(deprel_alphabet) - 2) * 2 + 1)
                   )
+    model.init()
 
     n_sentence = 0
     best_uas = 0.
@@ -81,6 +96,7 @@ def learn():
             train_data = train_dataset[n]
             if not is_tree(train_data) or not is_projective(train_data):
                 logging.info('%d sentence is not projective, skipped.' % n)
+                continue
             X, Y = parser.generate_training_instance(train_data)
             model.train(X, Y)
 
@@ -90,12 +106,14 @@ def learn():
                 logging.info('Devel at %d, UAS=%f' % (n_sentence, uas))
                 if uas > best_uas:
                     best_uas = uas
-                    pkl.dump((parser, model), opts.model)
+                    logging.info('New best achieved: %f' % best_uas)
+                    #pkl.dump((parser, model), opts.model)
         uas = evaluate(devel_dataset, parser, model)
         logging.info('Devel at the end of iteration %d, UAS=%f' % (iter, uas))
         if uas > best_uas:
             best_uas = uas
-            pkl.dump((parser, model), opts.model)
+            logging.info('New best achieved: %f' % best_uas)
+            #pkl.dump((parser, model), opts.model)
 
 
 def test():

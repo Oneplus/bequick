@@ -48,7 +48,7 @@ class State(object):
             _hed['R1'] = mod
 
     def terminate(self):
-        return len(self.stack) == 2 and len(self.buffer) == 0
+        return len(self.stack) == 1 and len(self.buffer) == 0
 
     def oracle_action(self, data):
         top0 = self.stack[-1] if len(self.stack) > 0 else -1
@@ -79,16 +79,17 @@ class State(object):
         if action.startswith('LA'):
             if len(self.stack) < 2:
                 return False
-            if self.stack[-1] == 0: # root not reduced
+            if self.stack[-2] == 0: # root not reduced
                 return False
         elif action.startswith('RA'):
             if len(self.stack) < 2:
                 return False
-            if self.stack[-1] == 0 and action.split('-')[1] not in ('root', 'ROOT', 'HED'):
+            if self.stack[-2] == 0 and action.split('-')[1] not in ('root', 'ROOT', 'HED'):
                 return False
         else:
             if len(self.buffer) < 1:
                 return False
+        return True
 
 
 class Parser(object):
@@ -169,20 +170,25 @@ class Parser(object):
     def parameterize_Y(self, actions):
         ret = []
         for action in actions:
+            tmp = [0.] * self.num_actions()
             if action == 'SH':
-                ret.append(0)
+                tmp[0] = 1.
             elif action.startswith('LA'):
-                ret.append(2 * self.deprel_alpha.get(action.split('-')[1]) + 1)
+                tmp[2 * self.deprel_alpha.get(action.split('-')[1]) - 3] = 1.
             else:
-                ret.append(2 * self.deprel_alpha.get(action.split('-')[1]) + 2)
+                tmp[2 * self.deprel_alpha.get(action.split('-')[1]) - 2] = 1.
+            ret.append(tmp)
         return ret
+
+    def num_actions(self):
+        return (len(self.deprel_alpha) - 2) * 2 + 1
 
     def get_action(self, a):
         if a == 0:
             return 'SH'
         elif a % 2 == 1:
             l = a / 2
-            return 'LA' + self.deprel_cache[l]
+            return 'LA-' + self.deprel_cache[l + 2]
         else:
             l = (a - 2) / 2
-            return 'RA' + self.deprel_cache[l]
+            return 'RA-' + self.deprel_cache[l + 2]

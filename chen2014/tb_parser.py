@@ -65,7 +65,7 @@ class State(object):
         elif top1 >= 0 and data[top0]['head'] == top1 and all_descendents_reduced:
             return 'RA-%s' % data[top0]['deprel']
         elif len(self.buffer) > 0:
-            return "SH"
+            return 'SH'
 
     def transit(self, action):
         if action.startswith('LA'):
@@ -129,15 +129,19 @@ class Parser(object):
             'N2': (s.buffer[2] if len(s.buffer) > 2 else None),
         }
         S0 = ctx['S0']
-        ctx['S0L0'] = None if S0 is None else (None if 'LO' not in s.result[S0] else s.result[S0]['L0'])
+        ctx['S0L0'] = None if S0 is None else (None if 'L0' not in s.result[S0] else s.result[S0]['L0'])
         ctx['S0L1'] = None if S0 is None else (None if 'L1' not in s.result[S0] else s.result[S0]['L1'])
-        ctx['S0R0'] = None if S0 is None else (None if 'RO' not in s.result[S0] else s.result[S0]['R0'])
+        ctx['S0R0'] = None if S0 is None else (None if 'R0' not in s.result[S0] else s.result[S0]['R0'])
         ctx['S0R1'] = None if S0 is None else (None if 'R1' not in s.result[S0] else s.result[S0]['R1'])
+        ctx['S0LL'] = None if not ctx['S0L0'] else (None if 'L0' not in s.result[ctx['S0L0']] else s.result[ctx['S0L0']]['L0'])
+        ctx['S0RR'] = None if not ctx['S0R0'] else (None if 'R0' not in s.result[ctx['S0R0']] else s.result[ctx['S0R0']]['R0'])
         S1 = ctx['S1']
-        ctx['S1L0'] = None if S1 is None else (None if 'LO' not in s.result[S1] else s.result[S1]['L0'])
+        ctx['S1L0'] = None if S1 is None else (None if 'L0' not in s.result[S1] else s.result[S1]['L0'])
         ctx['S1L1'] = None if S1 is None else (None if 'L1' not in s.result[S1] else s.result[S1]['L1'])
-        ctx['S1R0'] = None if S1 is None else (None if 'RO' not in s.result[S1] else s.result[S1]['R0'])
+        ctx['S1R0'] = None if S1 is None else (None if 'R0' not in s.result[S1] else s.result[S1]['R0'])
         ctx['S1R1'] = None if S1 is None else (None if 'R1' not in s.result[S1] else s.result[S1]['R1'])
+        ctx['S1LL'] = None if not ctx['S1L0'] else (None if 'L0' not in s.result[ctx['S1L0']] else s.result[ctx['S1L0']]['L0'])
+        ctx['S1RR'] = None if not ctx['S1R0'] else (None if 'R0' not in s.result[ctx['S1R0']] else s.result[ctx['S1R0']]['R0'])
         return ctx
 
     def get_oracle_actions(self, data):
@@ -150,9 +154,12 @@ class Parser(object):
             s.transit(action)
         return ret
 
-    FORM_NAMES = ['S0', 'S1', 'S2', 'N0', 'N1', 'N2', 'S0L0', 'S0L1', 'S0R0', 'S0R1', 'S1L0', 'S1L1', 'S1R0', 'S1R1']
-    POS_NAMES = ['S0', 'S1', 'S2', 'N0', 'N1', 'N2', 'S0L0', 'S0L1', 'S0R0', 'S0R1', 'S1L0', 'S1L1', 'S1R0', 'S1R1']
-    DEPREL_NAMES = ['S0L0', 'S0L1', 'S0R0', 'S0R1', 'S1L0', 'S1L1', 'S1R0', 'S1R1']
+    _1ST_ORDER = ['S0', 'S1', 'S2', 'N0', 'N1', 'N2']
+    _2ND_ORDER = ['S0L0', 'S0L1', 'S0R0', 'S0R1', 'S1L0', 'S1L1', 'S1R0', 'S1R1', 'S0LL', 'S0RR', 'S1LL', 'S1RR']
+
+    FORM_NAMES = _1ST_ORDER + _2ND_ORDER
+    POS_NAMES = _1ST_ORDER + _2ND_ORDER
+    DEPREL_NAMES = _2ND_ORDER
 
     def parameterize_X(self, instances, s):
         ret = []
@@ -181,7 +188,7 @@ class Parser(object):
         return ret
 
     def num_actions(self):
-        return (len(self.deprel_alpha) - 2) * 2 + 1
+        return len(self.deprel_alpha) * 2 - 3
 
     def get_action(self, a):
         if a == 0:

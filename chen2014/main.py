@@ -4,6 +4,7 @@ import argparse
 import random
 import logging
 import cPickle as pkl
+import numpy as np
 from corpus import read_dataset, get_alphabet
 from tb_parser import State, Parser
 from model import Model
@@ -13,6 +14,22 @@ logging.basicConfig(level=logging.INFO,
         format='%(asctime)-15s %(levelname)s: %(message)s'
 )
 
+
+def load_embedding(path, form_alphabet, dim):
+    indices = []
+    matrix = np.zeros(shape=(len(form_alphabet), dim))
+    row = 0
+    for line in open(path, 'r'):
+        tokens = line.strip().split()
+        word = tokens[0]
+        if word in form_alphabet:
+            key = form_alphabet.get(word)
+            indices.append(key)
+            matrix[row,:]= np.array([float(x) for x in tokens[1:]])
+            row += 1
+    return indices, matrix[:row, :]
+
+
 def evaluate(dataset, parser, model):
     n_uas, n_total = 0, 0
     for data in dataset:
@@ -20,7 +37,7 @@ def evaluate(dataset, parser, model):
         s = State(d)
         while not s.terminate():
             ctx = parser.extract_features(s)
-            x = parser.parameterize_X([ctx], s)[0]
+            x = parser.parameterize_X([ctx], s)
             best, best_action = None, None
             prediction = model.classify(x)[0]
             for i, p in enumerate(prediction):
@@ -33,7 +50,7 @@ def evaluate(dataset, parser, model):
         for i in range(1, len(d)):
             if d[i]['head'] == s.result[i]['head']:
                 n_uas += 1
-        n_total += (len(d) - 1)
+            n_total += 1
     return float(n_uas) / n_total
 
 
@@ -48,10 +65,8 @@ def learn():
     conf.add_argument("--max-iter", dest="max_iter",type=int, default=10,
                       help="The number of max iteration.")
     conf.add_argument("--hidden-size", dest="hidden_size", type=int, default=200, help="The size of hidden layer.")
-    conf.add_argument("--embedding-size", dest="embedding_size", type=int, default=50, help="The size of embedding.")
-    conf.add_argument("--precomputed-number", dest="precomputed_number", type=int, default=100000,
-                      help="The number of precomputed.")
-    conf.add_argument("--evaluate-stops", dest="evaluate_stops", type=int, default=100,
+    conf.add_argument("--embedding-size", dest="embedding_size", type=int, default=100, help="The size of embedding.")
+    conf.add_argument("--evaluate-stops", dest="evaluate_stops", type=int, default=2500,
                       help="Evaluation on per-iteration.")
     conf.add_argument("--ada-eps", dest="ada_eps", type=float, default=1e-6, help="The EPS in AdaGrad.")
     conf.add_argument("--ada-alpha", dest="ada_alpha", type=float, default=0.01, help="The Alpha in AdaGrad.")
@@ -76,15 +91,18 @@ def learn():
 
     parser = Parser(form_alphabet, pos_alphabet, deprel_alphabet)
     model = Model(form_size=len(form_alphabet),
-                  form_dim=50,
+                  form_dim=100,
                   pos_size=len(pos_alphabet),
-                  pos_dim=50,
+                  pos_dim=20,
                   deprel_size=len(deprel_alphabet),
-                  deprel_dim=50,
+                  deprel_dim=20,
                   hidden_dim=opts.hidden_size,
-                  output_dim=((len(deprel_alphabet) - 2) * 2 + 1)
+                  output_dim=parser.num_actions()
                   )
     model.init()
+    indices, matrix = load_embedding(opts.embedding, form_alphabet, 100)
+    model.initialize_word_embeddings(indices, matrix)
+    logging.info('Embedding is loaded.')
 
     n_sentence = 0
     best_uas = 0.
@@ -92,28 +110,35 @@ def learn():
         logging.info(('Iteration %d' % iter))
         order = range(len(train_dataset))
         random.shuffle(order)
+        cost = 0.
         for n in order:
             train_data = train_dataset[n]
-            if not is_tree(train_data) or not is_projective(train_data):
+            if not is_tree(train_data):
+                logging.info('%d sentence is not tree, skipped.' % n)
+                continue
+            if not is_projective(train_data):
                 logging.info('%d sentence is not projective, skipped.' % n)
                 continue
             X, Y = parser.generate_training_instance(train_data)
-            model.train(X, Y)
+            cost += model.train(X, Y)
 
             n_sentence += 1
             if n_sentence % opts.evaluate_stops == 0:
+                logging.info('Finish %f sentences' % (float(n_sentence) / len(train_dataset)))
                 uas = evaluate(devel_dataset, parser, model)
                 logging.info('Devel at %d, UAS=%f' % (n_sentence, uas))
                 if uas > best_uas:
                     best_uas = uas
                     logging.info('New best achieved: %f' % best_uas)
                     #pkl.dump((parser, model), opts.model)
+        logging.info('Cost %f' % cost)
         uas = evaluate(devel_dataset, parser, model)
         logging.info('Devel at the end of iteration %d, UAS=%f' % (iter, uas))
         if uas > best_uas:
             best_uas = uas
             logging.info('New best achieved: %f' % best_uas)
             #pkl.dump((parser, model), opts.model)
+    logging.info('Finish training, best uas is %f' % best_uas)
 
 
 def test():

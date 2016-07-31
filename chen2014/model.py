@@ -70,43 +70,41 @@ class Model(object):
                 name="y_o")
 
         # build network.
-        _input = tf.reshape(
-                tf.concat(1, [
-                    tf.nn.embedding_lookup(self.form_emb, self.form_inputs),
-                    tf.nn.embedding_lookup(self.pos_emb, self.pos_inputs),
-                    tf.nn.embedding_lookup(self.deprel_emb, self.deprel_inputs)]
-                    ),
-                [-1, self.input_dim]
+        _input = tf.concat(1, [
+            tf.reshape(
+                tf.nn.embedding_lookup(self.form_emb, self.form_inputs),
+                [-1, len(Parser.FORM_NAMES) * self.form_dim]
+                ),
+            tf.reshape(
+                tf.nn.embedding_lookup(self.pos_emb, self.pos_inputs),
+                [-1, len(Parser.POS_NAMES) * self.pos_dim]
+                ),
+            tf.reshape(
+                tf.nn.embedding_lookup(self.deprel_emb, self.deprel_inputs),
+                [-1, len(Parser.DEPREL_NAMES) * self.deprel_dim]
                 )
+            ])
         _layer = tf.nn.relu(tf.add(tf.matmul(_input, self.W0), self.b0))
         self.pred = tf.nn.softmax(tf.add(tf.matmul(_layer, self.W1), self.b1))
 
         # loss
         self.loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(self.pred, self.y))
-        self.optm = tf.train.AdamOptimizer(learning_rate=0.01).minimize(self.loss)
+        self.optm = tf.train.AdagradOptimizer(learning_rate=0.1).minimize(self.loss)
 
-    def initialize_word_embeddings(self, embeddings):
-        pass
+    def initialize_word_embeddings(self, indices, matrix):
+        _indices = [tf.to_int32(i) for i in indices]
+        self.session.run(tf.scatter_update(self.form_emb, _indices, matrix))
 
     def init(self):
-        init = tf.initialize_all_variables()
         self.session = tf.Session()
-        self.session.run(init)
+        self.session.run(tf.initialize_all_variables())
 
     def train(self, X, Y):
         X_form = [_[0] for _ in X]
         X_pos = [_[1] for _ in X]
         X_deprel = [_[2] for _ in X]
 
-        self.session.run(self.optm,
-                feed_dict = {
-                    self.form_inputs: X_form,
-                    self.pos_inputs: X_pos,
-                    self.deprel_inputs: X_deprel,
-                    self.y: Y
-                    })
-
-        cost = self.session.run(self.loss,
+        _, cost = self.session.run([self.optm, self.loss],
                 feed_dict = {
                     self.form_inputs: X_form,
                     self.pos_inputs: X_pos,
@@ -115,13 +113,16 @@ class Model(object):
                     })
         return cost
 
-    def classify(self, x):
-        x_form, x_pos, x_deprel = x
+    def classify(self, X):
+        X_form = [_[0] for _ in X]
+        X_pos = [_[1] for _ in X]
+        X_deprel = [_[2] for _ in X]
+
         prediction = self.session.run(self.pred,
                 feed_dict = {
-                    self.form_inputs: [x_form],
-                    self.pos_inputs: [x_pos],
-                    self.deprel_inputs: [x_deprel],
+                    self.form_inputs: X_form,
+                    self.pos_inputs: X_pos,
+                    self.deprel_inputs: X_deprel,
                     })
         return prediction
 

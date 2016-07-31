@@ -5,12 +5,12 @@ def is_projective(data):
     for payload in data:
         hed, mod = payload['head'], payload['id']
         if hed < mod:
-            for payload2 in data[hed + 1: mod]:
+            for payload2 in data[hed: mod - 1]:
                 hed2 = payload2['head']
                 if hed2 < hed or hed2 > mod:
                     return False
         else:
-            for payload2 in data[mod + 1: hed]:
+            for payload2 in data[mod: hed - 1]:
                 hed2 = payload2['head']
                 if hed2 < mod or hed2 > hed:
                     return False

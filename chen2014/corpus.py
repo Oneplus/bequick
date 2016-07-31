@@ -11,7 +11,7 @@ def read_dataset(filename):
             data.append({
                 'id': int(tokens[0]),
                 'form': tokens[1],
-                'pos': tokens[2],
+                'pos': tokens[3],
                 'head': int(tokens[6]),
                 'deprel': tokens[7]
             })

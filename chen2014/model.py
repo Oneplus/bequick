@@ -4,6 +4,8 @@ import logging
 import tensorflow as tf
 from tb_parser import Parser
 
+tf.set_random_seed(1234)
+
 class Model(object):
     def __init__(self,
                  form_size,
@@ -13,7 +15,8 @@ class Model(object):
                  deprel_size,
                  deprel_dim,
                  hidden_dim,
-                 output_dim):
+                 output_dim,
+                 lambda_):
         self.form_size = form_size
         self.form_dim = form_dim
         self.pos_size = pos_size
@@ -87,8 +90,12 @@ class Model(object):
         _layer = tf.nn.relu(tf.add(tf.matmul(_input, self.W0), self.b0))
         self.pred = tf.nn.softmax(tf.add(tf.matmul(_layer, self.W1), self.b1))
 
+        regularizer = lambda_ * (tf.nn.l2_loss(self.W0) +
+                tf.nn.l2_loss(self.b0) +
+                tf.nn.l2_loss(self.W1) +
+                tf.nn.l2_loss(self.b1))
         # loss
-        self.loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(self.pred, self.y))
+        self.loss = (tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(self.pred, self.y)) + regularizer)
         self.optm = tf.train.AdagradOptimizer(learning_rate=0.1).minimize(self.loss)
 
     def initialize_word_embeddings(self, indices, matrix):

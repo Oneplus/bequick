@@ -66,11 +66,11 @@ def learn():
                       help="The number of max iteration.")
     conf.add_argument("--hidden-size", dest="hidden_size", type=int, default=200, help="The size of hidden layer.")
     conf.add_argument("--embedding-size", dest="embedding_size", type=int, default=100, help="The size of embedding.")
-    conf.add_argument("--evaluate-stops", dest="evaluate_stops", type=int, default=2500,
+    conf.add_argument("--evaluate-stops", dest="evaluate_stops", type=int, default=-1,
                       help="Evaluation on per-iteration.")
     conf.add_argument("--ada-eps", dest="ada_eps", type=float, default=1e-6, help="The EPS in AdaGrad.")
     conf.add_argument("--ada-alpha", dest="ada_alpha", type=float, default=0.01, help="The Alpha in AdaGrad.")
-    conf.add_argument("--lambda", dest="lambda", type=float, default=1e-8, help="The regularizer parameter.")
+    conf.add_argument("--lambda", dest="lamb", type=float, default=1e-8, help="The regularizer parameter.")
     conf.add_argument("--dropout", dest="dropout", type=float, default=0.5, help="The probability for dropout.")
     opts = conf.parse_args(sys.argv[2:])
 
@@ -97,7 +97,8 @@ def learn():
                   deprel_size=len(deprel_alphabet),
                   deprel_dim=20,
                   hidden_dim=opts.hidden_size,
-                  output_dim=parser.num_actions()
+                  output_dim=parser.num_actions(),
+                  lambda_=opts.lamb
                   )
     model.init()
     indices, matrix = load_embedding(opts.embedding, form_alphabet, 100)
@@ -123,7 +124,7 @@ def learn():
             cost += model.train(X, Y)
 
             n_sentence += 1
-            if n_sentence % opts.evaluate_stops == 0:
+            if opts.evaluate_stops > 0 and n_sentence % opts.evaluate_stops == 0:
                 logging.info('Finish %f sentences' % (float(n_sentence) / len(train_dataset)))
                 uas = evaluate(devel_dataset, parser, model)
                 logging.info('Devel at %d, UAS=%f' % (n_sentence, uas))

@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 import sys
 import argparse
-import random
 import logging
 import cPickle as pkl
 import numpy as np
@@ -9,6 +8,8 @@ from corpus import read_dataset, get_alphabet
 from tb_parser import State, Parser
 from model import Model
 from tree_utils import is_projective, is_tree
+
+np.random.seed(1234)
 
 logging.basicConfig(level=logging.INFO,
         format='%(asctime)-15s %(levelname)s: %(message)s'
@@ -55,24 +56,24 @@ def evaluate(dataset, parser, model):
 
 
 def learn():
-    conf = argparse.ArgumentParser("Learning component for chen and manning (2014)'s parser")
-    conf.add_argument("--model", help="The path to the model.")
-    conf.add_argument("--embedding", help="The path to the embedding file.")
-    conf.add_argument("--reference", help="The path to the reference file.")
-    conf.add_argument("--development", help="The path to the development file.")
-    conf.add_argument("--init-range", dest="init_range", type=float, default=0.01,
+    cmd = argparse.ArgumentParser("Learning component for chen and manning (2014)'s parser")
+    cmd.add_argument("--model", help="The path to the model.")
+    cmd.add_argument("--embedding", help="The path to the embedding file.")
+    cmd.add_argument("--reference", help="The path to the reference file.")
+    cmd.add_argument("--development", help="The path to the development file.")
+    cmd.add_argument("--init-range", dest="init_range", type=float, default=0.01,
                       help="The initialization range.")
-    conf.add_argument("--max-iter", dest="max_iter",type=int, default=10,
+    cmd.add_argument("--max-iter", dest="max_iter",type=int, default=10,
                       help="The number of max iteration.")
-    conf.add_argument("--hidden-size", dest="hidden_size", type=int, default=200, help="The size of hidden layer.")
-    conf.add_argument("--embedding-size", dest="embedding_size", type=int, default=100, help="The size of embedding.")
-    conf.add_argument("--evaluate-stops", dest="evaluate_stops", type=int, default=-1,
+    cmd.add_argument("--hidden-size", dest="hidden_size", type=int, default=200, help="The size of hidden layer.")
+    cmd.add_argument("--embedding-size", dest="embedding_size", type=int, default=100, help="The size of embedding.")
+    cmd.add_argument("--evaluate-stops", dest="evaluate_stops", type=int, default=-1,
                       help="Evaluation on per-iteration.")
-    conf.add_argument("--ada-eps", dest="ada_eps", type=float, default=1e-6, help="The EPS in AdaGrad.")
-    conf.add_argument("--ada-alpha", dest="ada_alpha", type=float, default=0.01, help="The Alpha in AdaGrad.")
-    conf.add_argument("--lambda", dest="lamb", type=float, default=1e-8, help="The regularizer parameter.")
-    conf.add_argument("--dropout", dest="dropout", type=float, default=0.5, help="The probability for dropout.")
-    opts = conf.parse_args(sys.argv[2:])
+    cmd.add_argument("--ada-eps", dest="ada_eps", type=float, default=1e-6, help="The EPS in AdaGrad.")
+    cmd.add_argument("--ada-alpha", dest="ada_alpha", type=float, default=0.01, help="The Alpha in AdaGrad.")
+    cmd.add_argument("--lambda", dest="lamb", type=float, default=1e-8, help="The regularizer parameter.")
+    cmd.add_argument("--dropout", dest="dropout", type=float, default=0.5, help="The probability for dropout.")
+    opts = cmd.parse_args(sys.argv[2:])
 
     train_dataset = read_dataset(opts.reference)
     logging.info("Loaded %d training sentences." % len(train_dataset))
@@ -101,7 +102,7 @@ def learn():
                   lambda_=opts.lamb
                   )
     model.init()
-    indices, matrix = load_embedding(opts.embedding, form_alphabet, 100)
+    indices, matrix = load_embedding(opts.embedding, form_alphabet, opts.embedding_size)
     model.initialize_word_embeddings(indices, matrix)
     logging.info('Embedding is loaded.')
 
@@ -110,7 +111,7 @@ def learn():
     for iter in range(1, opts.max_iter + 1):
         logging.info(('Iteration %d' % iter))
         order = range(len(train_dataset))
-        random.shuffle(order)
+        np.random.shuffle(order)
         cost = 0.
         for n in order:
             train_data = train_dataset[n]
@@ -143,11 +144,11 @@ def learn():
 
 
 def test():
-    conf = argparse.ArgumentParser("Testing component for chen and manning (2014)'s parser")
-    conf.add_argument("--model", help="The path to the model.")
-    conf.add_argument("--input", help="The path to the embedding file.")
-    conf.add_argument("--output", help="The path to the output file.")
-    opts = conf.parse_args(sys.argv[2:])
+    cmd = argparse.ArgumentParser("Testing component for chen and manning (2014)'s parser")
+    cmd.add_argument("--model", help="The path to the model.")
+    cmd.add_argument("--input", help="The path to the embedding file.")
+    cmd.add_argument("--output", help="The path to the output file.")
+    opts = cmd.parse_args(sys.argv[2:])
 
     model, parser = None, None
     test_dataset = read_dataset(opts.input)

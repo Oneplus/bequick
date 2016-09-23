@@ -133,15 +133,15 @@ def init_learn_opt():
         The option parser for learning
     '''
     usage = "Learning component for Semi-CRF with partial annotated data"
-    parser = OptionParser(usage)
-    parser.add_option("-t", "--train", dest="train", help="the training data.")
-    parser.add_option("-d", "--devel", dest="devel", help="the develop data.")
-    parser.add_option("-s", "--split", dest="split", type=int,
+    cmd = OptionParser(usage)
+    cmd.add_option("-t", "--train", dest="train", help="the training data.")
+    cmd.add_option("-d", "--devel", dest="devel", help="the develop data.")
+    cmd.add_option("-s", "--split", dest="split", type=int,
             help="the develop data.")
-    parser.add_option("-m", "--model", dest="model", help="the model file path.")
-    parser.add_option("-i", "--iteration", dest="iteration", default=10, type=int, 
+    cmd.add_option("-m", "--model", dest="model", help="the model file path.")
+    cmd.add_option("-i", "--iteration", dest="iteration", default=10, type=int,
             help="specify number of cores to use")
-    return parser
+    return cmd
 
 
 def init_tag_opt():
@@ -154,10 +154,10 @@ def init_tag_opt():
         The option parser for learning
     '''
     usage = "Tagging component for Semi-CRF with partial annotated data"
-    parser = OptionParser(usage)
-    parser.add_option("-d", "--devel", dest="devel", help="the devel data.")
-    parser.add_option("-m", "--model", dest="model", help="the model file path.")
-    return parser
+    cmd = OptionParser(usage)
+    cmd.add_option("-d", "--devel", dest="devel", help="the devel data.")
+    cmd.add_option("-m", "--model", dest="model", help="the model file path.")
+    return cmd
 
 
 def build_score_cache(w, L, T, A, instance):

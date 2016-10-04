@@ -19,26 +19,34 @@ class Alphabet(object):
     def insert(self, name):
         """
 
-        :param name:
+        :param name: str, the
         :return:
         """
-        new_id = len(self.id2str)
-        self.id2str[new_id] = name
-        self.str2id[name] = new_id
+        if name not in self.str2id:
+            new_id = len(self.id2str)
+            self.id2str[new_id] = name
+            self.str2id[name] = new_id
+        return self.str2id[name]
 
     def get(self, name):
         """
 
-        :param name:
+        :param name: str,
         :return:
         """
         if isinstance(name, str):
-            if not name in self.str2id:
-                raise NameError("name %s not found in alphabet." % name)
+            if name not in self.str2id:
+                if not self.have_default_initialization:
+                    raise NameError("name %s not found in alphabet." % name)
+                else:
+                    return self.str2id.get("__UNK__")
             return self.str2id.get(name)
         elif isinstance(name, int):
-            if not name in self.id2str:
-                raise NameError("index %d not found in alphabet." % name)
+            if name not in self.id2str:
+                if not self.have_default_initialization:
+                    raise NameError("index %d not found in alphabet." % name)
+                else:
+                    return self.id2str.get(1)
             return self.id2str.get(name)
         else:
             raise TypeError("Unsupported type in alphabet!")

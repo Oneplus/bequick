@@ -1,0 +1,88 @@
+#!/usr/bin/env python
+from __future__ import print_function
+import json
+import argparse
+from nltk.tree import Tree
+from bowman2015.alphabet import Alphabet
+
+
+def extract_words_from_tree(context):
+    tree = Tree.fromstring(context)
+    return tree.leaves()
+
+
+def get_in_files(prefix, suffix):
+    return ["%s_%s.%s" % (prefix, split, suffix) for split in ["train", "dev", "test"]]
+
+
+def convert_and_output(label_alphabet, form_alphabet, gold_label, sentence1, sentence2, fpo, is_train):
+    """
+
+    :param label_alphabet: Alphabet
+    :param form_alphabet: Alphabet
+    :param gold_label: str
+    :param sentence1: list(str)
+    :param sentence2: list(str)
+    :param fpo: file
+    :return:
+    """
+    gold_label_id = label_alphabet.insert(gold_label) if is_train else label_alphabet.get(gold_label)
+    sentence1_ids = [(form_alphabet.insert(token) if is_train else form_alphabet.get(token)) for token in sentence1]
+    sentence2_ids = [(form_alphabet.insert(token) if is_train else form_alphabet.get(token)) for token in sentence2]
+    print('%d\t%s\t%s' % (gold_label_id,
+                          ' '.join(str(i) for i in sentence1_ids),
+                          ' '.join(str(i) for i in sentence2_ids)), file=fpo)
+
+
+def parse_json(prefix):
+    in_files = get_in_files(prefix, "jsonl")
+    out_files = get_in_files(prefix, "ext")
+    names = ["train", "dev", "test"]
+    label_alphabet = Alphabet(use_default_initialization=False)
+    form_alphabet = Alphabet(use_default_initialization=True)
+
+    for in_file, out_file, name in zip(in_files, out_files, names):
+        fpo = open(out_file, 'w')
+        for line in open(in_file, 'r'):
+            payload = json.loads(line)
+            gold_label = payload["gold_label"]
+            sentence1 = extract_words_from_tree(payload["sentence1_parse"])
+            sentence2 = extract_words_from_tree(payload["sentence2_parse"])
+            convert_and_output(label_alphabet, form_alphabet, gold_label, sentence1, sentence2, fpo,
+                               True if name is "train" else False)
+
+
+def parse_tsv(prefix):
+    in_files = get_in_files(prefix, "txt")
+    out_files = get_in_files(prefix, "ext")
+    names = ["train", "dev", "test"]
+    label_alphabet = Alphabet(use_default_initialization=False)
+    form_alphabet = Alphabet(use_default_initialization=True)
+
+    for in_file, out_file, name in zip(in_files, out_files, names):
+        fpo = open(out_file, 'w')
+        fpi = open(in_file, 'r')
+        fpi.readline()  # skip the header.
+        for line in fpi:
+            payload = line.split('\t')
+            gold_label = payload[0]
+            sentence1 = extract_words_from_tree(payload[3])
+            sentence2 = extract_words_from_tree(payload[4])
+            convert_and_output(label_alphabet, form_alphabet, gold_label, sentence1, sentence2, fpo,
+                               True if name is "train" else False)
+
+
+def main():
+    usage = "the data preparation script"
+    cmd = argparse.ArgumentParser(usage)
+    cmd.add_argument("--json", default=False, action="store_true", help="input is in json.")
+    cmd.add_argument("prefix", help="the prefix, file in format of prefix_[train|dev|test].txt")
+    args = cmd.parse_args()
+    if args.json:
+        parse_json(args.prefix)
+    else:
+        parse_tsv(args.prefix)
+
+
+if __name__ == "__main__":
+    main()

@@ -16,6 +16,9 @@ class Alphabet(object):
             self.id2str = {}
             self.str2id = {}
 
+    def __len__(self):
+        return len(self.str2id)
+
     def insert(self, name):
         """
 
@@ -48,5 +51,18 @@ class Alphabet(object):
                 else:
                     return self.id2str.get(1)
             return self.id2str.get(name)
+        else:
+            raise TypeError("Unsupported type in alphabet!")
+
+    def __contains__(self, item):
+        """
+
+        :param item:
+        :return:
+        """
+        if isinstance(item, str):
+            return item in self.str2id
+        elif isinstance(item, int):
+            return item in self.id2str
         else:
             raise TypeError("Unsupported type in alphabet!")

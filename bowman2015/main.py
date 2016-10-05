@@ -5,7 +5,7 @@ import logging
 import numpy as np
 from collections import namedtuple
 from itertools import chain
-from bowman2015.utils import batch
+from bowman2015.utils import batch, zip_open
 from bowman2015.model import Model
 random.seed(1234)
 
@@ -88,16 +88,16 @@ def train(train_data, devel_data, test_data, model, max_iteration=10):
             X1, X2, Y = transduce(chunk)
             prediction = model.classify(X1, X2)
             n_total += len(chunk)
-            n_corr += sum((1 if np.argmax(p) == np.argmax(y) else 0) for p, y in zip(prediction, Y))
-        logging.info("precision %f" % (float(n_corr) / n_total))
+            n_corr += sum((1 if np.argmax(p) == y else 0) for p, y in zip(prediction, Y))
+        logging.info("dev precision %f" % (float(n_corr) / n_total))
 
         n_corr, n_total = 0, 0
         for chunk in batch(test_data, model.batch_size):
             X1, X2, Y = transduce(chunk)
             prediction = model.classify(X1, X2)
             n_total += len(chunk)
-            n_corr += sum((1 if np.argmax(p) == np.argmax(y) else 0) for p, y in zip(prediction, Y))
-        logging.info("precision %f" % (float(n_corr) / n_total))
+            n_corr += sum((1 if np.argmax(p) == y else 0) for p, y in zip(prediction, Y)[: len(chunk)])
+        logging.info("test precision %f" % (float(n_corr) / n_total))
 
 
 def load_data(path):
@@ -113,6 +113,27 @@ def load_data(path):
     return ret
 
 
+def load_word_embedding(form_dim, path):
+    """
+
+    :param path:
+    :return:
+    """
+    fpi = zip_open(path)
+    dim = int(fpi.readline().strip().split()[1])
+    assert form_dim == dim, "The configured word dim should be equal to the pretrained."
+    indices = []
+    payload = {}
+    for line in fpi:
+        tokens = line.strip().split()
+        indices.append(int(tokens[0]))
+        payload[int(tokens[0])] = np.array([float(i) for i in tokens[1:]], dtype=np.float32)
+    matrix = np.zeros(shape=(len(indices), dim))
+    for rank, index in enumerate(indices):
+        matrix[rank,:] = payload[index]
+    return indices, matrix
+
+
 def main():
     usage = "An implementation of A large annotated corpus for learning natural language inference"
     cmd = argparse.ArgumentParser(usage=usage)
@@ -122,6 +143,7 @@ def main():
     cmd.add_argument("--batch_size", type=int, default=32, help='the batch size.')
     cmd.add_argument("--algorithm", default="clipping_sgd", help="the algorithm [clipping_sgd, adagrad, adadelta, adam].")
     cmd.add_argument("--max_iter", default=10, type=int, help="the maximum iteration.")
+    cmd.add_argument("--embedding", help="the path to the word embedding.")
     cmd.add_argument("train", help="the path to the training file.")
     cmd.add_argument("devel", help="the path to the development file.")
     cmd.add_argument("test", help="the path to the testing file.")
@@ -147,6 +169,7 @@ def main():
     num_classes = get_number_of_classes(train_data, devel_data, test_data)
     logging.info("number of classes: %d" % num_classes)
 
+    # config and init the model
     model = Model(algorithm=args.algorithm,
                   form_size=form_size,
                   form_dim=args.form_dim,
@@ -158,6 +181,13 @@ def main():
                   batch_size=args.batch_size,
                   regularizer=0.0)
     model.init()
+
+    # initialize the embeddings
+    indices, matrix = load_word_embedding(args.form_dim, args.embedding)
+    model.initialize_word_embeddings(indices, matrix)
+    logging.info("%d word embedding is loaded." % len(indices))
+
+    # train!
     train(train_data, devel_data, test_data, model, args.max_iter)
 
 

@@ -54,7 +54,7 @@ def get_max_length(train_data, devel_data, test_data):
     return max_sentence1_length, max_sentence2_length
 
 
-def train(train_data, devel_data, test_data, model, max_iteration=10, batch_size=32):
+def train(train_data, devel_data, test_data, model, max_iteration=10):
     """
 
     :param train_data:
@@ -66,9 +66,9 @@ def train(train_data, devel_data, test_data, model, max_iteration=10, batch_size
     :return:
     """
     def transduce(chunk):
-        Y = np.zeros(shape=(batch_size, model.output_dim), dtype=np.float32)
-        X1 = np.zeros(shape=(model.max_sentence1_steps, batch_size), dtype=np.int32)
-        X2 = np.zeros(shape=(model.max_sentence2_steps, batch_size), dtype=np.int32)
+        Y = np.zeros(shape=(model.batch_size, model.output_dim), dtype=np.float32)
+        X1 = np.zeros(shape=(model.max_sentence1_steps, model.batch_size), dtype=np.int32)
+        X2 = np.zeros(shape=(model.max_sentence2_steps, model.batch_size), dtype=np.int32)
         for b, c in enumerate(chunk):
             Y[b, c.gold_label] = 1.
             X1[: len(c.sentence1), b] = c.sentence1
@@ -78,13 +78,13 @@ def train(train_data, devel_data, test_data, model, max_iteration=10, batch_size
     for iteration in range(max_iteration):
         random.shuffle(train_data)
         cost = 0.
-        for chunk in batch(train_data, batch_size):
+        for chunk in batch(train_data, model.batch_size):
             X1, X2, Y = transduce(chunk)
             cost += model.train(X1, X2, Y)
         logging.info("cost after iteration %d: %f" % (iteration, cost))
 
         n_corr, n_total = 0, 0
-        for chunk in batch(devel_data, batch_size):
+        for chunk in batch(devel_data, model.batch_size):
             X1, X2, Y = transduce(chunk)
             prediction = model.classify(X1, X2)
             n_total += len(chunk)
@@ -92,7 +92,7 @@ def train(train_data, devel_data, test_data, model, max_iteration=10, batch_size
         logging.info("precision %f" % (float(n_corr) / n_total))
 
         n_corr, n_total = 0, 0
-        for chunk in batch(test_data, batch_size):
+        for chunk in batch(test_data, model.batch_size):
             X1, X2, Y = transduce(chunk)
             prediction = model.classify(X1, X2)
             n_total += len(chunk)

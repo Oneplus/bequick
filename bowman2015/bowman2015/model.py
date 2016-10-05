@@ -14,6 +14,7 @@ class Model(object):
         self.n_layers = n_layers
         self.max_sentence1_steps = max_sentence1_steps
         self.max_sentence2_steps = max_sentence2_steps
+        self.batch_size = batch_size
 
         # PLACEHOLDER
         self.X1 = tf.placeholder(tf.int32, (max_sentence1_steps, batch_size), name='X1')

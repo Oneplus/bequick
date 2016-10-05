@@ -6,7 +6,7 @@ tf.set_random_seed(1234)
 
 class Model(object):
     def __init__(self, form_size, form_dim, hidden_dim, output_dim, n_layers,
-                 max_sentence1_steps, max_sentence2_steps, batch_size):
+                 max_sentence1_steps, max_sentence2_steps, batch_size, algorithm):
         self.form_size = form_size
         self.form_dim = form_dim
         self.hidden_dim = hidden_dim
@@ -76,13 +76,20 @@ class Model(object):
         self.loss = (tf.reduce_mean(
             tf.nn.softmax_cross_entropy_with_logits(self.pred, self.Y)) + regularizer)
 
-        # GRADIENTS AND CLIPPING
-        global_step = tf.Variable(0, trainable=False)
-        learning_rate = tf.train.exponential_decay(0.01, global_step, 100000, 0.96)
-        opt = tf.train.GradientDescentOptimizer(learning_rate=learning_rate)
-        tvars = tf.trainable_variables()
-        grads, _ = tf.clip_by_global_norm(tf.gradients(self.loss, tvars), 5.)
-        self.optm = opt.apply_gradients(zip(grads, tvars), global_step=global_step)
+        if algorithm == "adagrad":
+            self.optm = tf.train.AdagradOptimizer().minimize(self.loss)
+        elif algorithm == "adadelta":
+            self.optm = tf.train.AdadeltaOptimizer().minimize(self.loss)
+        elif algorithm == "adam":
+            self.optm = tf.train.AdamOptimizer().minimize(self.loss)
+        else:
+            global_step = tf.Variable(0, trainable=False)
+            learning_rate = tf.train.exponential_decay(0.01, global_step, 100000, 0.96)
+            opt = tf.train.GradientDescentOptimizer(learning_rate=learning_rate)
+            tvars = tf.trainable_variables()
+            grads, _ = tf.clip_by_global_norm(tf.gradients(self.loss, tvars), 5.)
+            self.optm = opt.apply_gradients(zip(grads, tvars), global_step=global_step)
+
 
     def init(self):
         self.session = tf.Session()

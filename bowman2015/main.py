@@ -120,6 +120,7 @@ def main():
     cmd.add_argument("--hidden_dim", type=int, required=True, help="the dim of the hidden output.")
     cmd.add_argument("--layers", type=int, default=1, help='the number of layers.')
     cmd.add_argument("--batch_size", type=int, default=32, help='the batch size.')
+    cmd.add_argument("--algorithm", default="clipping_sgd", help="the algorithm [clipping_sgd, adagrad].")
     cmd.add_argument("train", help="the path to the training file.")
     cmd.add_argument("devel", help="the path to the development file.")
     cmd.add_argument("test", help="the path to the testing file.")
@@ -152,7 +153,8 @@ def main():
                   output_dim=num_classes,
                   max_sentence1_steps=max_sentence1_length,
                   max_sentence2_steps=max_sentence2_length,
-                  batch_size=args.batch_size)
+                  batch_size=args.batch_size,
+                  algorithm=args.algorithm)
     model.init()
     train(train_data, devel_data, test_data, model)
 

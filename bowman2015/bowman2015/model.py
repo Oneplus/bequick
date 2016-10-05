@@ -5,8 +5,8 @@ tf.set_random_seed(1234)
 
 
 class Model(object):
-    def __init__(self, form_size, form_dim, hidden_dim, output_dim, n_layers,
-                 max_sentence1_steps, max_sentence2_steps, batch_size, algorithm):
+    def __init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, n_layers,
+                 max_sentence1_steps, max_sentence2_steps, batch_size, regularizer):
         self.form_size = form_size
         self.form_dim = form_dim
         self.hidden_dim = hidden_dim
@@ -19,7 +19,7 @@ class Model(object):
         # PLACEHOLDER
         self.X1 = tf.placeholder(tf.int32, (max_sentence1_steps, batch_size), name='X1')
         self.X2 = tf.placeholder(tf.int32, (max_sentence2_steps, batch_size), name='X2')
-        self.Y = tf.placeholder(tf.float32, (batch_size, output_dim), name='Y')
+        self.Y = tf.placeholder(tf.int32, batch_size, name='Y')
 
         with tf.device('/cpu:0'), tf.name_scope('embedding'):
             width = math.sqrt(6. / (form_size + form_dim))
@@ -68,19 +68,18 @@ class Model(object):
             name="W0")
         # shape(W0) => (400, 3)
         self.b0 = tf.Variable(tf.zeros([self.output_dim]), name="b0")
-        # shape(W0) => (3)
+        # shape(b0) => (3)
         self.pred = tf.nn.softmax(tf.matmul(output, self.W0) + self.b0)
         # shape(pred) => (32, 3)
 
         # LOSS
-        regularizer = 1e-8 * (tf.nn.l2_loss(self.W0) + tf.nn.l2_loss(self.b0))
-        self.loss = (tf.reduce_mean(
-            tf.nn.softmax_cross_entropy_with_logits(self.pred, self.Y)) + regularizer)
+        reg = regularizer * (tf.nn.l2_loss(self.W0) + tf.nn.l2_loss(self.b0))
+        self.loss = (tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(self.pred, self.Y)) + reg)
 
         if algorithm == "adagrad":
-            self.optm = tf.train.AdagradOptimizer().minimize(self.loss)
+            self.optm = tf.train.AdagradOptimizer(learning_rate=0.01).minimize(self.loss)
         elif algorithm == "adadelta":
-            self.optm = tf.train.AdadeltaOptimizer().minimize(self.loss)
+            self.optm = tf.train.AdadeltaOptimizer(learning_rate=0.01).minimize(self.loss)
         elif algorithm == "adam":
             self.optm = tf.train.AdamOptimizer().minimize(self.loss)
         else:

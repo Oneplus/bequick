@@ -66,11 +66,11 @@ def train(train_data, devel_data, test_data, model, max_iteration=10):
     :return:
     """
     def transduce(chunk):
-        Y = np.zeros(shape=(model.batch_size, model.output_dim), dtype=np.float32)
+        Y = np.zeros(shape=model.batch_size, dtype=np.int32)
         X1 = np.zeros(shape=(model.max_sentence1_steps, model.batch_size), dtype=np.int32)
         X2 = np.zeros(shape=(model.max_sentence2_steps, model.batch_size), dtype=np.int32)
         for b, c in enumerate(chunk):
-            Y[b, c.gold_label] = 1.
+            Y[b] = c.gold_label
             X1[: len(c.sentence1), b] = c.sentence1
             X2[: len(c.sentence2), b] = c.sentence2
         return X1, X2, Y
@@ -120,7 +120,8 @@ def main():
     cmd.add_argument("--hidden_dim", type=int, required=True, help="the dim of the hidden output.")
     cmd.add_argument("--layers", type=int, default=1, help='the number of layers.')
     cmd.add_argument("--batch_size", type=int, default=32, help='the batch size.')
-    cmd.add_argument("--algorithm", default="clipping_sgd", help="the algorithm [clipping_sgd, adagrad].")
+    cmd.add_argument("--algorithm", default="clipping_sgd", help="the algorithm [clipping_sgd, adagrad, adadelta, adam].")
+    cmd.add_argument("--max_iter", default=10, type=int, help="the maximum iteration.")
     cmd.add_argument("train", help="the path to the training file.")
     cmd.add_argument("devel", help="the path to the development file.")
     cmd.add_argument("test", help="the path to the testing file.")
@@ -146,7 +147,8 @@ def main():
     num_classes = get_number_of_classes(train_data, devel_data, test_data)
     logging.info("number of classes: %d" % num_classes)
 
-    model = Model(form_size=form_size,
+    model = Model(algorithm=args.algorithm,
+                  form_size=form_size,
                   form_dim=args.form_dim,
                   hidden_dim=args.hidden_dim,
                   n_layers=args.layers,
@@ -154,9 +156,9 @@ def main():
                   max_sentence1_steps=max_sentence1_length,
                   max_sentence2_steps=max_sentence2_length,
                   batch_size=args.batch_size,
-                  algorithm=args.algorithm)
+                  regularizer=0.0)
     model.init()
-    train(train_data, devel_data, test_data, model)
+    train(train_data, devel_data, test_data, model, args.max_iter)
 
 
 if __name__ == "__main__":

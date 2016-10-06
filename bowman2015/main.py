@@ -1,12 +1,17 @@
 #!/usr/bin/env python
+import os
+import sys
 import argparse
-import random
 import logging
+import random
 import numpy as np
 from collections import namedtuple
 from itertools import chain
-from bowman2015.utils import batch, zip_open
-from bowman2015.model import Model
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))
+from bequick.utils import batch, zip_open
+from model import Model
+
 random.seed(1234)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)-15s %(levelname)s: %(message)s')
@@ -182,10 +187,11 @@ def main():
                   regularizer=0.0)
     model.init()
 
-    # initialize the embeddings
-    indices, matrix = load_word_embedding(args.form_dim, args.embedding)
-    model.initialize_word_embeddings(indices, matrix)
-    logging.info("%d word embedding is loaded." % len(indices))
+    if args.embedding is not None:
+        # initialize the embeddings
+        indices, matrix = load_word_embedding(args.form_dim, args.embedding)
+        model.initialize_word_embeddings(indices, matrix)
+        logging.info("%d word embedding is loaded." % len(indices))
 
     # train!
     train(train_data, devel_data, test_data, model, args.max_iter)

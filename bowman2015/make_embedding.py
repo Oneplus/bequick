@@ -1,9 +1,12 @@
 #!/usr/bin/env python
 from __future__ import print_function
+import os
 import sys
 import argparse
 import cPickle as pkl
-from bowman2015.utils import zip_open
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))
+from bequick.utils import zip_open
 
 
 def main():

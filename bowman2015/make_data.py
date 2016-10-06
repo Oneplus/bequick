@@ -4,12 +4,15 @@
 # - convert the word in raw form into index.
 # - save the mapping from word to index into a file.
 from __future__ import print_function
+import os
 import sys
 import json
 import argparse
 import cPickle as pkl
 from nltk.tree import Tree
-from bowman2015.alphabet import Alphabet
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))
+from bequick.alphabet import Alphabet
 
 
 def extract_words_from_tree(context):

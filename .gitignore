@@ -54,3 +54,6 @@ docs/_build/
 target/
 
 *.gz
+*.bz2
+data/
+sample/

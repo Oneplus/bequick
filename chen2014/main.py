@@ -2,7 +2,6 @@
 import sys
 import argparse
 import logging
-import cPickle as pkl
 import numpy as np
 from corpus import read_dataset, get_alphabet
 from tb_parser import State, Parser
@@ -11,9 +10,7 @@ from tree_utils import is_projective, is_tree
 
 np.random.seed(1234)
 
-logging.basicConfig(level=logging.INFO,
-        format='%(asctime)-15s %(levelname)s: %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format='%(asctime)-15s %(levelname)s: %(message)s')
 
 
 def load_embedding(path, form_alphabet, dim):
@@ -61,17 +58,15 @@ def learn():
     cmd.add_argument("--embedding", help="The path to the embedding file.")
     cmd.add_argument("--reference", help="The path to the reference file.")
     cmd.add_argument("--development", help="The path to the development file.")
-    cmd.add_argument("--init-range", dest="init_range", type=float, default=0.01,
-                      help="The initialization range.")
-    cmd.add_argument("--max-iter", dest="max_iter",type=int, default=10,
-                      help="The number of max iteration.")
+    cmd.add_argument("--init-range", dest="init_range", type=float, default=0.01, help="The initialization range.")
+    cmd.add_argument("--max-iter", dest="max_iter", type=int, default=10, help="The number of max iteration.")
     cmd.add_argument("--hidden-size", dest="hidden_size", type=int, default=200, help="The size of hidden layer.")
     cmd.add_argument("--embedding-size", dest="embedding_size", type=int, default=100, help="The size of embedding.")
-    cmd.add_argument("--evaluate-stops", dest="evaluate_stops", type=int, default=-1,
-                      help="Evaluation on per-iteration.")
+    cmd.add_argument("--evaluate-stops", dest="evaluate_stops", type=int, default=-1, help="Evaluate on per n iters.")
     cmd.add_argument("--ada-eps", dest="ada_eps", type=float, default=1e-6, help="The EPS in AdaGrad.")
     cmd.add_argument("--ada-alpha", dest="ada_alpha", type=float, default=0.01, help="The Alpha in AdaGrad.")
     cmd.add_argument("--lambda", dest="lamb", type=float, default=1e-8, help="The regularizer parameter.")
+    cmd.add_argument("--batch-size", dest="batch_size", type=int, default=5000, help="The size of batch.")
     cmd.add_argument("--dropout", dest="dropout", type=float, default=0.5, help="The probability for dropout.")
     opts = cmd.parse_args(sys.argv[2:])
 
@@ -101,46 +96,43 @@ def learn():
                   output_dim=parser.num_actions(),
                   lambda_=opts.lamb
                   )
-    model.init()
     indices, matrix = load_embedding(opts.embedding, form_alphabet, opts.embedding_size)
     model.initialize_word_embeddings(indices, matrix)
     logging.info('Embedding is loaded.')
 
-    n_sentence = 0
     best_uas = 0.
-    for iter in range(1, opts.max_iter + 1):
-        logging.info(('Iteration %d' % iter))
-        order = range(len(train_dataset))
-        np.random.shuffle(order)
-        cost = 0.
-        for n in order:
-            train_data = train_dataset[n]
-            if not is_tree(train_data):
-                logging.info('%d sentence is not tree, skipped.' % n)
-                continue
-            if not is_projective(train_data):
-                logging.info('%d sentence is not projective, skipped.' % n)
-                continue
-            X, Y = parser.generate_training_instance(train_data)
-            cost += model.train(X, Y)
+    train_samples = []
+    for train_data in train_dataset:
+        if not is_tree(train_data):
+            logging.info('%d sentence is not tree, skipped.' % n)
+            continue
+        if not is_projective(train_data):
+            logging.info('%d sentence is not projective, skipped.' % n)
+            continue
+        X, Y = parser.generate_training_instance(train_data)
+        train_samples.extend(zip(X, Y))
 
-            n_sentence += 1
-            if opts.evaluate_stops > 0 and n_sentence % opts.evaluate_stops == 0:
-                logging.info('Finish %f sentences' % (float(n_sentence) / len(train_dataset)))
+    n_batch, n_samples = 0, len(train_samples)
+    for i in range(1, opts.max_iter + 1):
+        logging.info(('Iteration %d' % i))
+        np.random.shuffle(train_samples)
+        cost = 0.
+        for s in range(0, n_samples, opts.batch_size):
+            batch = train_samples[s: s + opts.batch_size]
+            cost += model.train([x for x, y in batch], [y for x, y in batch])
+            n_batch += 1
+            if opts.evaluate_stops > 0 and n_batch % opts.evaluate_stops == 0:
                 uas = evaluate(devel_dataset, parser, model)
-                logging.info('Devel at %d, UAS=%f' % (n_sentence, uas))
+                logging.info('At {0}, UAS={1}'.format((float(n_batch) / n_samples), uas))
                 if uas > best_uas:
                     best_uas = uas
-                    logging.info('New best achieved: %f' % best_uas)
-                    #pkl.dump((parser, model), opts.model)
-        logging.info('Cost %f' % cost)
+                    logging.info('New best achieved {0}'.format(best_uas))
         uas = evaluate(devel_dataset, parser, model)
-        logging.info('Devel at the end of iteration %d, UAS=%f' % (iter, uas))
+        logging.info('End of iteration {0}, Cost={1}, UAS={2}'.format(i, cost, uas))
         if uas > best_uas:
             best_uas = uas
-            logging.info('New best achieved: %f' % best_uas)
-            #pkl.dump((parser, model), opts.model)
-    logging.info('Finish training, best uas is %f' % best_uas)
+            logging.info('New best achieved: {0}'.format(best_uas))
+    logging.info('Finish training, best uas is {0}'.format(best_uas))
 
 
 def test():

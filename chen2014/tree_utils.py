@@ -19,7 +19,7 @@ def is_projective(data):
 
 def is_tree(data):
     n = len(data)
-    tree = [[] for _ in range(n + 1)] # counting 0
+    tree = [[] for _ in range(n + 1)]  # counting 0
     visited = [False for _ in range(n + 1)]
     for payload in data:
         hed = payload['head']
@@ -35,4 +35,4 @@ def is_tree(data):
                 return False
         return True
 
-    return travel(0) # 0 is root by default.
+    return travel(0)  # 0 is root by default.

@@ -7,7 +7,7 @@ class State(object):
         self.data = data
         self.stack = []
         self.buffer = range(len(data))
-        self.result = [{} for i in range(len(data))]
+        self.result = [{} for _ in range(len(data))]
 
     def shift(self):
         self.stack.append(self.buffer[0])
@@ -53,16 +53,16 @@ class State(object):
     def oracle_action(self, data):
         top0 = self.stack[-1] if len(self.stack) > 0 else -1
         top1 = self.stack[-2] if len(self.stack) > 1 else -2
-        all_descendents_reduced = True
+        all_descendants_reduced = True
         if top0 >= 0:
             for d in data:
                 if d['head'] == top0 and ('head' not in self.result[d['id']] or self.result[d['id']]['head'] != top0):
-                    all_descendents_reduced = False
+                    all_descendants_reduced = False
                     break
 
         if top1 >= 0 and data[top1]['head'] == top0:
             return 'LA-%s' % data[top1]['deprel']
-        elif top1 >= 0 and data[top0]['head'] == top1 and all_descendents_reduced:
+        elif top1 >= 0 and data[top0]['head'] == top1 and all_descendants_reduced:
             return 'RA-%s' % data[top0]['deprel']
         elif len(self.buffer) > 0:
             return 'SH'
@@ -100,10 +100,10 @@ class Parser(object):
         self.pos_alpha = pos_alpha
         self.deprel_alpha = deprel_alpha
         self.pos_cache = {}
-        for k, v in pos_alpha.iteritems():
+        for k, v in pos_alpha.items():
             self.pos_cache[v] = k
         self.deprel_cache = {}
-        for k, v in deprel_alpha.iteritems():
+        for k, v in deprel_alpha.items():
             self.deprel_cache[v] = k
 
     def generate_training_instance(self, data):

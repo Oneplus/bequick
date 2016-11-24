@@ -6,7 +6,7 @@ import numpy as np
 import tensorflow as tf
 from corpus import read_dataset, get_alphabet
 from tb_parser import Parser
-from model import SupervisedModel
+from model import QlearningModel
 from tree_utils import is_projective, is_tree
 from evaluate import evaluate
 from embedding import load_embedding
@@ -26,16 +26,13 @@ def learn():
     cmd.add_argument("--hidden-size", dest="hidden_size", type=int, default=400, help="The size of hidden layer.")
     cmd.add_argument("--embedding-size", dest="embedding_size", type=int, default=100, help="The size of embedding.")
     cmd.add_argument("--evaluate-stops", dest="evaluate_stops", type=int, default=-1, help="Evaluate on per n iters.")
-    cmd.add_argument("--ada-eps", dest="ada_eps", type=float, default=1e-6, help="The EPS in AdaGrad.")
-    cmd.add_argument("--ada-alpha", dest="ada_alpha", type=float, default=0.01, help="The Alpha in AdaGrad.")
     cmd.add_argument("--lambda", dest="lamb", type=float, default=1e-8, help="The regularizer parameter.")
-    cmd.add_argument("--batch-size", dest="batch_size", type=int, default=5000, help="The size of batch.")
     cmd.add_argument("--dropout", dest="dropout", type=float, default=0.5, help="The probability for dropout.")
     opts = cmd.parse_args(sys.argv[2:])
 
     train_dataset = read_dataset(opts.reference)
     logging.info("Loaded %d training sentences." % len(train_dataset))
-    
+
     devel_dataset = read_dataset(opts.development)
     logging.info("Loaded %d development sentences." % len(devel_dataset))
 
@@ -44,14 +41,14 @@ def learn():
 
     pos_alphabet = get_alphabet(train_dataset, 'pos')
     logging.info("# %d postags in alphabet" % len(pos_alphabet))
-    
+
     deprel_alphabet = get_alphabet(train_dataset, 'deprel')
     logging.info("# %d deprel in alphabet" % len(deprel_alphabet))
 
     parser = Parser(form_alphabet, pos_alphabet, deprel_alphabet)
-    model = SupervisedModel(form_size=len(form_alphabet), form_dim=100, pos_size=len(pos_alphabet), pos_dim=20,
-                            deprel_size=len(deprel_alphabet), deprel_dim=20, hidden_dim=opts.hidden_size,
-                            output_dim=parser.num_actions(), l=opts.lamb)
+    model = QlearningModel(form_size=len(form_alphabet), form_dim=100, pos_size=len(pos_alphabet), pos_dim=20,
+                           deprel_size=len(deprel_alphabet), deprel_dim=20, hidden_dim=opts.hidden_size,
+                           output_dim=parser.num_actions(), l=opts.lamb)
     indices, matrix = load_embedding(opts.embedding, form_alphabet, opts.embedding_size)
 
     session = tf.Session()
@@ -61,15 +58,6 @@ def learn():
 
     best_uas = 0.
     train_samples = []
-    for n, train_data in enumerate(train_dataset):
-        if not is_tree(train_data):
-            logging.info('{0} sentence is not tree, skipped.'.format(n))
-            continue
-        if not is_projective(train_data):
-            logging.info('{0} sentence is not projective, skipped.'.format(n))
-            continue
-        X, Y = parser.generate_training_instance(train_data)
-        train_samples.extend(zip(X, Y))
 
     n_batch, n_samples = 0, len(train_samples)
     logging.info('Training sample size: {0}'.format(n_samples))
@@ -96,6 +84,7 @@ def learn():
 
 def test():
     pass
+
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "learn":

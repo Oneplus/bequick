@@ -107,16 +107,14 @@ class Parser(object):
             self.deprel_cache[v] = k
 
     def generate_training_instance(self, data):
-        oracle_actions = self.get_oracle_actions(data)
         d = [self.ROOT] + data
         s = State(d)
-        n_actions = 0
-        instances = []
+        instances, oracle_actions = [], []
         while not s.terminate():
-            action = oracle_actions[n_actions]
+            action = s.oracle_action(d)
+            oracle_actions.append(action)
             instances.append(self.extract_features(s))
             s.transit(action)
-            n_actions += 1
         return self.parameterize_X(instances, s), self.parameterize_Y(oracle_actions)
 
     def extract_features(self, s):
@@ -177,18 +175,16 @@ class Parser(object):
     def parameterize_Y(self, actions):
         ret = []
         for action in actions:
-            tmp = [0.] * self.num_actions()
             if action == 'SH':
-                tmp[0] = 1.
+                ret.append(0)
             elif action.startswith('LA'):
-                tmp[2 * self.deprel_alpha.get(action.split('-')[1]) - 3] = 1.
+                ret.append(2 * self.deprel_alpha.get(action.split('-')[1]) - 3)
             else:
-                tmp[2 * self.deprel_alpha.get(action.split('-')[1]) - 2] = 1.
-            ret.append(tmp)
+                ret.append(2 * self.deprel_alpha.get(action.split('-')[1]) - 2)
         return ret
 
     def num_actions(self):
-        return len(self.deprel_alpha) * 2 - 3
+        return len(self.deprel_alpha) * 2 - 3  # counting from 2, None for 0, UNK for 1
 
     def get_action(self, a):
         if a == 0:

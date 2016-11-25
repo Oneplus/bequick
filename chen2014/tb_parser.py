@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+import copy
 
 
 class State(object):
@@ -8,6 +9,9 @@ class State(object):
         self.stack = []
         self.buffer = range(len(data))
         self.result = [{} for _ in range(len(data))]
+
+    def __str__(self):
+        return "stack: {0}\nbuffer: {1}\nresult: {2}".format(str(self.stack), str(self.buffer), str(self.result))
 
     def shift(self):
         self.stack.append(self.buffer[0])
@@ -61,9 +65,9 @@ class State(object):
                     break
 
         if top1 >= 0 and data[top1]['head'] == top0:
-            return 'LA-%s' % data[top1]['deprel']
+            return 'LA-{0}'.format(data[top1]['deprel'])
         elif top1 >= 0 and data[top0]['head'] == top1 and all_descendants_reduced:
-            return 'RA-%s' % data[top0]['deprel']
+            return 'RA-{0}'.format(data[top0]['deprel'])
         elif len(self.buffer) > 0:
             return 'SH'
 
@@ -75,11 +79,27 @@ class State(object):
         else:
             self.shift()
 
+    def scored_transit(self, action):
+        if action.startswith('LA'):
+            hed = self.stack[-1]
+            mod = self.stack[-2]
+            score = 1. if self.data[mod]['head'] == hed else -1.
+            self.left(action.split('-')[1])
+        elif action.startswith('RA'):
+            hed = self.stack[-2]
+            mod = self.stack[-1]
+            self.right(action.split('-')[1])
+            score = 1. if self.data[mod]['head'] == hed else -1.
+        else:
+            self.shift()
+            score = 0.
+        return score
+
     def valid(self, action):
         if action.startswith('LA'):
             if len(self.stack) < 2:
                 return False
-            if self.stack[-2] == 0: # root not reduced
+            if self.stack[-2] == 0:  # root not reduced
                 return False
         elif action.startswith('RA'):
             if len(self.stack) < 2:
@@ -90,6 +110,13 @@ class State(object):
             if len(self.buffer) < 1:
                 return False
         return True
+
+    def copy(self):
+        new_state = State(self.data)
+        new_state.stack = copy.deepcopy(self.stack)
+        new_state.buffer = copy.deepcopy(self.buffer)
+        new_state.result = copy.deepcopy(self.result)
+        return new_state
 
 
 class Parser(object):
@@ -103,8 +130,17 @@ class Parser(object):
         for k, v in pos_alpha.items():
             self.pos_cache[v] = k
         self.deprel_cache = {}
+        self.actions = ['SH']
+        self.actions_cache = {'SH': 0}
         for k, v in deprel_alpha.items():
             self.deprel_cache[v] = k
+            if v > 1:
+                name = 'LA-{0}'.format(k)
+                self.actions_cache[name] = len(self.actions)
+                self.actions.append(name)
+                name = 'RA-{0}'.format(k)
+                self.actions_cache[name] = len(self.actions)
+                self.actions.append(name)
 
     def generate_training_instance(self, data):
         d = [self.ROOT] + data
@@ -173,25 +209,24 @@ class Parser(object):
         return ret
 
     def parameterize_Y(self, actions):
-        ret = []
-        for action in actions:
-            if action == 'SH':
-                ret.append(0)
-            elif action.startswith('LA'):
-                ret.append(2 * self.deprel_alpha.get(action.split('-')[1]) - 3)
-            else:
-                ret.append(2 * self.deprel_alpha.get(action.split('-')[1]) - 2)
-        return ret
+        return [self._get_int_action(action) for action in actions]
 
     def num_actions(self):
         return len(self.deprel_alpha) * 2 - 3  # counting from 2, None for 0, UNK for 1
 
     def get_action(self, a):
-        if a == 0:
-            return 'SH'
-        elif a % 2 == 1:
-            l = a / 2
-            return 'LA-' + self.deprel_cache[l + 2]
+        if isinstance(a, str):
+            return self._get_int_action(a)
+        elif isinstance(a, int):
+            return self._get_string_action(a)
         else:
-            l = (a - 2) / 2
-            return 'RA-' + self.deprel_cache[l + 2]
+            raise AttributeError("a: " + type(a) + " is not support")
+
+    def _get_string_action(self, a):
+        return self.actions[a]
+
+    def _get_int_action(self, a):
+        return self.actions_cache[a]
+
+    def get_actions(self):
+        return self.actions

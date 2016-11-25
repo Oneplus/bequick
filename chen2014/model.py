@@ -44,6 +44,12 @@ class Network(object):
         self.deprel = tf.placeholder(tf.int32, shape=(None, len(Parser.DEPREL_NAMES), ), name="deprel_i")
         self.output = tf.placeholder(tf.int32, shape=(None, ), name="y_o")
 
+    def unpack_inputs(self, inputs):
+        form = [_[0] for _ in inputs]
+        pos = [_[1] for _ in inputs]
+        deprel = [_[2] for _ in inputs]
+        return form, pos, deprel
+
 
 class Classifier(Network):
     def __init__(self, form_size, form_dim, pos_size, pos_dim, deprel_size, deprel_dim, hidden_dim, output_dim,
@@ -76,27 +82,20 @@ class Classifier(Network):
         regularizer = tf.nn.l2_loss(self.W0) + tf.nn.l2_loss(self.b0) + tf.nn.l2_loss(self.W1) + tf.nn.l2_loss(self.b1)
         if self.dropout > 0:
             hidden_layer2 = tf.nn.dropout(hidden_layer, self.dropout)
-            self.loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(
-                tf.add(tf.matmul(hidden_layer2, self.W1), self.b1), self.output)) + l2 * regularizer
         else:
-            self.loss = tf.reduce_mean(
-                tf.nn.sparse_softmax_cross_entropy_with_logits(self.prediction, self.output)) + l2 * regularizer
+            hidden_layer2 = hidden_layer
+        self.loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(
+            tf.add(tf.matmul(hidden_layer2, self.W1), self.b1), self.output)) + l2 * regularizer
         self.optimization = tf.train.AdagradOptimizer(learning_rate=0.1).minimize(self.loss)
 
     def train(self, session, inputs, outputs):
-        form = [_[0] for _ in inputs]
-        pos = [_[1] for _ in inputs]
-        deprel = [_[2] for _ in inputs]
-
+        form, pos, deprel = self.unpack_inputs(inputs)
         _, cost = session.run([self.optimization, self.loss],
                               feed_dict={self.form: form, self.pos: pos, self.deprel: deprel, self.output: outputs})
         return cost
 
     def classify(self, session, inputs):
-        form = [_[0] for _ in inputs]
-        pos = [_[1] for _ in inputs]
-        deprel = [_[2] for _ in inputs]
-
+        form, pos, deprel = self.unpack_inputs(inputs)
         prediction = session.run(self.prediction, feed_dict={self.form: form, self.pos: pos, self.deprel: deprel})
         return prediction
 
@@ -106,6 +105,7 @@ class DeepQNetwork(Network):
                  l2):
         super(DeepQNetwork, self).__init__(form_size, form_dim, pos_size, pos_dim, deprel_size, deprel_dim, hidden_dim,
                                            output_dim, dropout, l2)
+        self.output = tf.placeholder(tf.float32, shape=(None,), name="y_o")
 
         # EMBEDDING in CPU
         with tf.device("/cpu:0"), tf.name_scope("embedding"):
@@ -138,43 +138,48 @@ class DeepQNetwork(Network):
         self.tgt_W1 = tf.Variable(random_uniform_matrix(self.hidden_dim, self.output_dim), name="tgt_W1")
         self.tgt_b1 = tf.Variable(tf.zeros([self.output_dim]), name="tgt_b1")
 
+        # PARAM SYNC
+        self.sync = [
+            self.tgt_form_emb.assign(self.form_emb),
+            self.tgt_pos_emb.assign(self.pos_emb),
+            self.tgt_deprel_emb.assign(self.deprel_emb),
+            self.tgt_W0.assign(self.W0),
+            self.tgt_b0.assign(self.b0),
+            self.tgt_W1.assign(self.W1),
+            self.tgt_b1.assign(self.b1)
+        ]
+
+        # MLP
         hidden_layer = tf.nn.relu(tf.add(tf.matmul(inputs, self.W0), self.b0))
-        self.prediction = tf.add(tf.matmul(hidden_layer, self.W1), self.b1)
+        self.q_function = tf.add(tf.matmul(hidden_layer, self.W1), self.b1)
 
-        if self.dropout > 0:
-            hidden_layer = tf.nn.dropout(hidden_layer, self.dropout)
+        tgt_hidden_layer = tf.nn.relu(tf.add(tf.matmul(inputs, self.tgt_W0), self.tgt_b0))
+        self.tgt_q_function = tf.add(tf.matmul(tgt_hidden_layer, self.tgt_W1), self.tgt_b1)
 
-        regularization = tf.nn.l2_loss(self.W0) + tf.nn.l2_loss(self.b0) + tf.nn.l2_loss(self.W1) + tf.nn.l2_loss(self.b1)
+        # LOSS
         if self.dropout > 0:
             hidden_layer2 = tf.nn.dropout(hidden_layer, self.dropout)
-            self.loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(
-                tf.add(tf.matmul(hidden_layer2, self.W1), self.b1), self.output)) + l2 * regularization
         else:
-            self.loss = tf.reduce_mean(
-                tf.nn.sparse_softmax_cross_entropy_with_logits(self.prediction, self.output)) + l2 * regularization
-        self.optimization = tf.train.AdagradOptimizer(learning_rate=0.1).minimize(self.loss)
-
-        self.pick = tf.placeholder(tf.int32, shape=(None,), name="pick")
-        regularizer = l2 * self.network_builder.l2_loss()
-        self.loss = tf.reduce_mean(tf.square(
-            tf.sub(tf.gather(self.network_builder.build_mlp(self.inputs, True), self.pick), self.output))) + regularizer
+            hidden_layer2 = hidden_layer
+        self.action = tf.placeholder(tf.int32, shape=(None,), name="action")
+        regularizer = tf.nn.l2_loss(self.W0) + tf.nn.l2_loss(self.b0) + tf.nn.l2_loss(self.W1) + tf.nn.l2_loss(self.b1)
+        self.loss = tf.reduce_mean(tf.square(tf.sub(tf.gather(
+            tf.add(tf.matmul(hidden_layer2, self.W1), self.b1), self.action), self.output))) + l2 * regularizer
         self.optimization = tf.train.RMSPropOptimizer(learning_rate=0.00025, momentum=0.95).minimize(self.loss)
 
-    def train(self, session, inputs, pick, outputs):
-        form = [_[0] for _ in inputs]
-        pos = [_[1] for _ in inputs]
-        deprel = [_[2] for _ in inputs]
-
+    def train(self, session, inputs, action, outputs):
+        form, pos, deprel = self.unpack_inputs(inputs)
         _, cost = session.run([self.optimization, self.loss], feed_dict={
-            self.form: form, self.pos: pos, self.deprel: deprel, self.pick: pick, self.output: outputs})
+            self.form: form, self.pos: pos, self.deprel: deprel, self.action: action, self.output: outputs})
         return cost
 
-    def classify(self, session, inputs):
-        form = [_[0] for _ in inputs]
-        pos = [_[1] for _ in inputs]
-        deprel = [_[2] for _ in inputs]
+    def policy(self, session, inputs):
+        form, pos, deprel = self.unpack_inputs(inputs)
+        return session.run(self.q_function, feed_dict={self.form: form, self.pos: pos, self.deprel: deprel})
 
-        prediction = session.run(self.predication, feed_dict={self.form: form, self.pos: pos, self.deprel: deprel})
-        return prediction
+    def target_policy(self, session, inputs):
+        form, pos, deprel = self.unpack_inputs(inputs)
+        return session.run(self.tgt_q_function, feed_dict={self.form: form, self.pos: pos, self.deprel: deprel})
 
-
+    def sync_target(self, session):
+        session.run(self.sync)

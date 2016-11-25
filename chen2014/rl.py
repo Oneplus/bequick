@@ -105,6 +105,7 @@ def main():
     eps = opts.eps_init
     eps_decay_rate = (opts.eps_init - opts.eps_final) / opts.eps_decay_steps
     cost = 0.
+    n_actions = parser.num_actions()
     model.sync_target(session)
     while i <= opts.max_iter:
         if n == 0:
@@ -156,8 +157,10 @@ def main():
                 else:
                     y = r
                 batch_X.append(x[0])
-                batch_action.append(aid)
-                batch_Y.append(y)
+                mask = np.zero(n_actions, dtype=np.float32)
+                mask[aid] = 1
+                batch_action.append(mask)
+                batch_Y.append(y * mask)
             cost += model.train(session, batch_X, batch_action, batch_Y)
             eps -= eps_decay_rate
 

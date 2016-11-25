@@ -20,7 +20,7 @@ def find_best(parser, state, scores):
     for i, score in enumerate(scores):
         name = parser.get_action(i)
         if state.valid(name) and (best_score is None or score > best_score):
-            best_score, best_action = score, name
+            best_score, best_name = score, name
     return best_score, best_name
 
 
@@ -155,7 +155,7 @@ def main():
                     y = opts.discount * best + r
                 else:
                     y = r
-                batch_X.append(x)
+                batch_X.append(x[0])
                 batch_action.append(aid)
                 batch_Y.append(y)
             cost += model.train(session, batch_X, batch_action, batch_Y)

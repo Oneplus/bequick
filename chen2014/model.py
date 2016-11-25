@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 import math
-import logging
 import tensorflow as tf
 from tb_parser import Parser
 
@@ -12,8 +11,14 @@ def random_uniform_matrix(n_rows, n_cols):
     return tf.random_uniform((n_rows, n_cols), -width, width)
 
 
+def initialize_word_embeddings(session, form_emb, indices, matrix):
+    _indices = [tf.to_int32(i) for i in indices]
+    session.run(tf.scatter_update(form_emb, _indices, matrix))
+
+
 class Network(object):
-    def __init__(self, form_size, form_dim, pos_size, pos_dim, deprel_size, deprel_dim, hidden_dim, output_dim):
+    def __init__(self, form_size, form_dim, pos_size, pos_dim, deprel_size, deprel_dim, hidden_dim, output_dim,
+                 dropout, l2):
         self.form_size = form_size
         self.form_dim = form_dim
         self.pos_size = pos_size
@@ -23,101 +28,153 @@ class Network(object):
         self.hidden_dim = hidden_dim
         self.output_dim = output_dim
 
-        # input and output
-        self.form_inputs = tf.placeholder(tf.int32, shape=(None, len(Parser.FORM_NAMES), ), name="form_i")
-        self.pos_inputs = tf.placeholder(tf.int32, shape=(None, len(Parser.POS_NAMES), ), name="pos_i")
-        self.deprel_inputs = tf.placeholder(tf.int32, shape=(None, len(Parser.DEPREL_NAMES), ), name="deprel_i")
-        self.y = tf.placeholder(tf.int32, shape=(None, ), name="y_o")
+        # DIMENSIONS
+        self.form_features_dim = len(Parser.FORM_NAMES) * self.form_dim
+        self.pos_features_dim = len(Parser.POS_NAMES) * self.pos_dim
+        self.deprel_features_dim = len(Parser.DEPREL_NAMES) * self.deprel_dim
+        self.input_dim = self.form_features_dim + self.pos_features_dim + self.deprel_features_dim
 
-        form_features_dim = len(Parser.FORM_NAMES) * self.form_dim
-        pos_features_dim = len(Parser.POS_NAMES) * self.pos_dim
-        deprel_features_dim = len(Parser.DEPREL_NAMES) * self.deprel_dim
+        # CONFIG
+        self.dropout = dropout
+        self.l2 = l2
+
+        # INPUT
+        self.form = tf.placeholder(tf.int32, shape=(None, len(Parser.FORM_NAMES), ), name="form_i")
+        self.pos = tf.placeholder(tf.int32, shape=(None, len(Parser.POS_NAMES), ), name="pos_i")
+        self.deprel = tf.placeholder(tf.int32, shape=(None, len(Parser.DEPREL_NAMES), ), name="deprel_i")
+        self.output = tf.placeholder(tf.int32, shape=(None, ), name="y_o")
+
+
+class Classifier(Network):
+    def __init__(self, form_size, form_dim, pos_size, pos_dim, deprel_size, deprel_dim, hidden_dim, output_dim,
+                 dropout, l2):
+        super(Classifier, self).__init__(form_size, form_dim, pos_size, pos_dim, deprel_size, deprel_dim, hidden_dim,
+                                         output_dim, dropout, l2)
+
         # EMBEDDING in CPU
         with tf.device("/cpu:0"), tf.name_scope("embedding"):
-            # embedding
             self.form_emb = tf.Variable(random_uniform_matrix(self.form_size, self.form_dim), name="form_emb")
             self.pos_emb = tf.Variable(random_uniform_matrix(self.pos_size, self.pos_dim), name="pos_emb")
             self.deprel_emb = tf.Variable(random_uniform_matrix(self.deprel_size, self.deprel_dim), name="deprel_emb")
-            _input = tf.concat(1, [
-                tf.reshape(tf.nn.embedding_lookup(self.form_emb, self.form_inputs), [-1, form_features_dim]),
-                tf.reshape(tf.nn.embedding_lookup(self.pos_emb, self.pos_inputs), [-1, pos_features_dim]),
-                tf.reshape(tf.nn.embedding_lookup(self.deprel_emb, self.deprel_inputs), [-1, deprel_features_dim])
-                ])
+            inputs = tf.concat(1, [
+                tf.reshape(tf.nn.embedding_lookup(self.form_emb, self.form), [-1, self.form_features_dim]),
+                tf.reshape(tf.nn.embedding_lookup(self.pos_emb, self.pos), [-1, self.pos_features_dim]),
+                tf.reshape(tf.nn.embedding_lookup(self.deprel_emb, self.deprel), [-1, self.deprel_features_dim])
+            ])
 
-        # MLP
-        self.input_dim = form_features_dim + pos_features_dim + deprel_features_dim
+        # PARAMS
         self.W0 = tf.Variable(random_uniform_matrix(self.input_dim, self.hidden_dim), name="W0")
         self.b0 = tf.Variable(tf.zeros([self.hidden_dim]), name="b0")
         self.W1 = tf.Variable(random_uniform_matrix(self.hidden_dim, self.output_dim), name="W1")
         self.b1 = tf.Variable(tf.zeros([self.output_dim]), name="b1")
-        _layer = tf.nn.relu(tf.add(tf.matmul(_input, self.W0), self.b0))
-        self.prediction = tf.add(tf.matmul(_layer, self.W1), self.b1)
 
-    def initialize_word_embeddings(self, session, indices, matrix):
-        _indices = [tf.to_int32(i) for i in indices]
-        session.run(tf.scatter_update(self.form_emb, _indices, matrix))
+        # PREDICTION
+        hidden_layer = tf.nn.relu(tf.add(tf.matmul(inputs, self.W0), self.b0))
+        self.prediction = tf.add(tf.matmul(hidden_layer, self.W1), self.b1)
 
-    def l2_loss(self):
-        return (tf.nn.l2_loss(self.W0) + tf.nn.l2_loss(self.b0) +
-                tf.nn.l2_loss(self.W1) + tf.nn.l2_loss(self.b1))
-
-    def get_training_feed(self, form, pos, deprel, Y):
-        return {self.form_inputs: form, self.pos_inputs: pos, self.deprel_inputs: deprel, self.y: Y}
-
-    def get_testing_feed(self, form, pos, deprel):
-        return {self.form_inputs: form, self.pos_inputs: pos, self.deprel_inputs: deprel}
-
-
-class SupervisedModel(object):
-    def __init__(self, form_size, form_dim, pos_size, pos_dim, deprel_size, deprel_dim, hidden_dim, output_dim, l):
-        self.network = Network(form_size, form_dim, pos_size, pos_dim, deprel_size, deprel_dim, hidden_dim, output_dim)
-
-        regularizer = l * self.network.l2_loss()
-        self.loss = tf.reduce_mean(
-            tf.nn.sparse_softmax_cross_entropy_with_logits(self.network.prediction, self.network.y)) + regularizer
+        # LOSS
+        regularizer = tf.nn.l2_loss(self.W0) + tf.nn.l2_loss(self.b0) + tf.nn.l2_loss(self.W1) + tf.nn.l2_loss(self.b1)
+        if self.dropout > 0:
+            hidden_layer2 = tf.nn.dropout(hidden_layer, self.dropout)
+            self.loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(
+                tf.add(tf.matmul(hidden_layer2, self.W1), self.b1), self.output)) + l2 * regularizer
+        else:
+            self.loss = tf.reduce_mean(
+                tf.nn.sparse_softmax_cross_entropy_with_logits(self.prediction, self.output)) + l2 * regularizer
         self.optimization = tf.train.AdagradOptimizer(learning_rate=0.1).minimize(self.loss)
 
-    def train(self, session, X, Y):
-        form = [_[0] for _ in X]
-        pos = [_[1] for _ in X]
-        deprel = [_[2] for _ in X]
+    def train(self, session, inputs, outputs):
+        form = [_[0] for _ in inputs]
+        pos = [_[1] for _ in inputs]
+        deprel = [_[2] for _ in inputs]
 
         _, cost = session.run([self.optimization, self.loss],
-                              feed_dict=self.network.get_training_feed(form, pos, deprel, Y))
+                              feed_dict={self.form: form, self.pos: pos, self.deprel: deprel, self.output: outputs})
         return cost
 
-    def classify(self, session, X):
-        form = [_[0] for _ in X]
-        pos = [_[1] for _ in X]
-        deprel = [_[2] for _ in X]
+    def classify(self, session, inputs):
+        form = [_[0] for _ in inputs]
+        pos = [_[1] for _ in inputs]
+        deprel = [_[2] for _ in inputs]
 
-        prediction = session.run(self.network.prediction, feed_dict=self.network.get_testing_feed(form, pos, deprel))
+        prediction = session.run(self.prediction, feed_dict={self.form: form, self.pos: pos, self.deprel: deprel})
         return prediction
 
 
-class QlearningModel(object):
-    def __init__(self, form_size, form_dim, pos_size, pos_dim, deprel_size, deprel_dim, hidden_dim, output_dim, l):
-        self.network = Network(form_size, form_dim, pos_size, pos_dim, deprel_size, deprel_dim, hidden_dim, output_dim)
-        self.pick = tf.placeholder(tf.int32, shape=(None,), name="y_o")
-        regularizer = l * self.network.l2_loss()
-        self.loss = tf.reduce_mean(
-            tf.square(tf.sub(tf.gather(self.network.prediction, self.pick), self.network.y))) + regularizer
+class DeepQNetwork(Network):
+    def __init__(self, form_size, form_dim, pos_size, pos_dim, deprel_size, deprel_dim, hidden_dim, output_dim, dropout,
+                 l2):
+        super(DeepQNetwork, self).__init__(form_size, form_dim, pos_size, pos_dim, deprel_size, deprel_dim, hidden_dim,
+                                           output_dim, dropout, l2)
+
+        # EMBEDDING in CPU
+        with tf.device("/cpu:0"), tf.name_scope("embedding"):
+            self.form_emb = tf.Variable(random_uniform_matrix(self.form_size, self.form_dim), name="form_emb")
+            self.pos_emb = tf.Variable(random_uniform_matrix(self.pos_size, self.pos_dim), name="pos_emb")
+            self.deprel_emb = tf.Variable(random_uniform_matrix(self.deprel_size, self.deprel_dim), name="deprel_emb")
+            inputs = tf.concat(1, [
+                tf.reshape(tf.nn.embedding_lookup(self.form_emb, self.form), [-1, self.form_features_dim]),
+                tf.reshape(tf.nn.embedding_lookup(self.pos_emb, self.pos), [-1, self.pos_features_dim]),
+                tf.reshape(tf.nn.embedding_lookup(self.deprel_emb, self.deprel), [-1, self.deprel_features_dim])
+            ])
+
+            self.tgt_form_emb = tf.Variable(random_uniform_matrix(self.form_size, self.form_dim), name="tgt_form_emb")
+            self.tgt_pos_emb = tf.Variable(random_uniform_matrix(self.pos_size, self.pos_dim), name="tgt_pos_emb")
+            self.tgt_deprel_emb = tf.Variable(random_uniform_matrix(self.deprel_size, self.deprel_dim), name="tgt_deprel_emb")
+            tgt_inputs = tf.concat(1, [
+                tf.reshape(tf.nn.embedding_lookup(self.tgt_form_emb, self.form), [-1, self.form_features_dim]),
+                tf.reshape(tf.nn.embedding_lookup(self.tgt_pos_emb, self.pos), [-1, self.pos_features_dim]),
+                tf.reshape(tf.nn.embedding_lookup(self.tgt_deprel_emb, self.deprel), [-1, self.deprel_features_dim])
+            ])
+
+        # PARAMS
+        self.W0 = tf.Variable(random_uniform_matrix(self.input_dim, self.hidden_dim), name="W0")
+        self.b0 = tf.Variable(tf.zeros([self.hidden_dim]), name="b0")
+        self.W1 = tf.Variable(random_uniform_matrix(self.hidden_dim, self.output_dim), name="W1")
+        self.b1 = tf.Variable(tf.zeros([self.output_dim]), name="b1")
+
+        self.tgt_W0 = tf.Variable(random_uniform_matrix(self.input_dim, self.hidden_dim), name="tgt_W0")
+        self.tgt_b0 = tf.Variable(tf.zeros([self.hidden_dim]), name="tgt_b0")
+        self.tgt_W1 = tf.Variable(random_uniform_matrix(self.hidden_dim, self.output_dim), name="tgt_W1")
+        self.tgt_b1 = tf.Variable(tf.zeros([self.output_dim]), name="tgt_b1")
+
+        hidden_layer = tf.nn.relu(tf.add(tf.matmul(inputs, self.W0), self.b0))
+        self.prediction = tf.add(tf.matmul(hidden_layer, self.W1), self.b1)
+
+        if self.dropout > 0:
+            hidden_layer = tf.nn.dropout(hidden_layer, self.dropout)
+
+        regularization = tf.nn.l2_loss(self.W0) + tf.nn.l2_loss(self.b0) + tf.nn.l2_loss(self.W1) + tf.nn.l2_loss(self.b1)
+        if self.dropout > 0:
+            hidden_layer2 = tf.nn.dropout(hidden_layer, self.dropout)
+            self.loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(
+                tf.add(tf.matmul(hidden_layer2, self.W1), self.b1), self.output)) + l2 * regularization
+        else:
+            self.loss = tf.reduce_mean(
+                tf.nn.sparse_softmax_cross_entropy_with_logits(self.prediction, self.output)) + l2 * regularization
+        self.optimization = tf.train.AdagradOptimizer(learning_rate=0.1).minimize(self.loss)
+
+        self.pick = tf.placeholder(tf.int32, shape=(None,), name="pick")
+        regularizer = l2 * self.network_builder.l2_loss()
+        self.loss = tf.reduce_mean(tf.square(
+            tf.sub(tf.gather(self.network_builder.build_mlp(self.inputs, True), self.pick), self.output))) + regularizer
         self.optimization = tf.train.RMSPropOptimizer(learning_rate=0.00025, momentum=0.95).minimize(self.loss)
 
-    def train(self, session, X, pick, Y):
-        form = [_[0] for _ in X]
-        pos = [_[1] for _ in X]
-        deprel = [_[2] for _ in X]
+    def train(self, session, inputs, pick, outputs):
+        form = [_[0] for _ in inputs]
+        pos = [_[1] for _ in inputs]
+        deprel = [_[2] for _ in inputs]
 
-        feed = self.network.get_training_feed(form, pos, deprel, Y)
-        feed[self.pick] = pick
-        _, cost = session.run([self.optimization, self.loss], feed_dict=feed)
+        _, cost = session.run([self.optimization, self.loss], feed_dict={
+            self.form: form, self.pos: pos, self.deprel: deprel, self.pick: pick, self.output: outputs})
         return cost
 
-    def classify(self, session, X):
-        form = [_[0] for _ in X]
-        pos = [_[1] for _ in X]
-        deprel = [_[2] for _ in X]
+    def classify(self, session, inputs):
+        form = [_[0] for _ in inputs]
+        pos = [_[1] for _ in inputs]
+        deprel = [_[2] for _ in inputs]
 
-        prediction = session.run(self.network.prediction, feed_dict=self.network.get_testing_feed(form, pos, deprel))
+        prediction = session.run(self.predication, feed_dict={self.form: form, self.pos: pos, self.deprel: deprel})
         return prediction
+
+

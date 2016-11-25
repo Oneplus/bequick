@@ -161,7 +161,7 @@ class DeepQNetwork(Network):
             hidden_layer2 = tf.nn.dropout(hidden_layer, self.dropout)
         else:
             hidden_layer2 = hidden_layer
-        self.action = tf.placeholder(tf.int32, shape=(None, self.output_dim), name="action")
+        self.action = tf.placeholder(tf.float32, shape=(None, self.output_dim), name="action")
         regularizer = tf.nn.l2_loss(self.W0) + tf.nn.l2_loss(self.b0) + tf.nn.l2_loss(self.W1) + tf.nn.l2_loss(self.b1)
 
         masked = tf.add(tf.matmul(hidden_layer2, self.W1), self.b1) * self.action

@@ -157,8 +157,8 @@ def main():
                 else:
                     y = r
                 batch_X.append(x[0])
-                mask = np.zero(n_actions, dtype=np.float32)
-                mask[aid] = 1
+                mask = np.zeros(n_actions, dtype=np.float32)
+                mask[aid] = 1.
                 batch_action.append(mask)
                 batch_Y.append(y * mask)
             cost += model.train(session, batch_X, batch_action, batch_Y)

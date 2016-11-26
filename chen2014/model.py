@@ -184,7 +184,7 @@ class DeepQNetwork(Network):
         form, pos, deprel = self.unpack_inputs(inputs)
         return session.run(self.tgt_q_function, feed_dict={self.form: form, self.pos: pos, self.deprel: deprel})
 
-    def sync_target(self, session):
+    def update_target(self, session):
         session.run(self.sync)
 
     def classify(self, session, inputs):

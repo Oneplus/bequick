@@ -18,6 +18,7 @@ def read_dataset(filename):
         dataset.append(data)
     return dataset
 
+
 def get_alphabet(dataset, keyword):
     ret = {None: 0, 'UNK': 1}
     for data in dataset:

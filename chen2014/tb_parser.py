@@ -157,10 +157,17 @@ class Parser(object):
             oracle_actions.append(action)
             instances.append(self.extract_features(s))
             s.transit(action)
-        return self.parameterize_X(instances, s), self.parameterize_Y(oracle_actions)
+        return self.parameterize_X(instances), self.parameterize_Y(oracle_actions)
+
+    @staticmethod
+    def copy_interested_result(ctx, name, src_result, tgt_result):
+        i = ctx[name]
+        if i is not None:
+            tgt_result[i] = {'head': src_result[i]['head'], 'deprel': src_result[i]['deprel']}
 
     def extract_features(self, s):
         ctx = {
+            'data': s.data,
             'S0': (s.stack[-1] if len(s.stack) > 0 else None),
             'S1': (s.stack[-2] if len(s.stack) > 1 else None),
             'S2': (s.stack[-3] if len(s.stack) > 2 else None),
@@ -182,6 +189,10 @@ class Parser(object):
         ctx['S1R1'] = None if S1 is None else (None if 'R1' not in s.result[S1] else s.result[S1]['R1'])
         ctx['S1LL'] = None if not ctx['S1L0'] else (None if 'L0' not in s.result[ctx['S1L0']] else s.result[ctx['S1L0']]['L0'])
         ctx['S1RR'] = None if not ctx['S1R0'] else (None if 'R0' not in s.result[ctx['S1R0']] else s.result[ctx['S1R0']]['R0'])
+
+        interested_result = ctx['interested_result'] = {}
+        for name in self._2ND_ORDER:
+            Parser.copy_interested_result(ctx, name, s.result, interested_result)
         return ctx
 
     def get_oracle_actions(self, data):
@@ -201,16 +212,17 @@ class Parser(object):
     POS_NAMES = _1ST_ORDER + _2ND_ORDER
     DEPREL_NAMES = _2ND_ORDER
 
-    def parameterize_X(self, instances, s):
+    def parameterize_X(self, instances):
         ret = []
         for ctx in instances:
+            data, result = ctx['data'], ctx['interested_result']
             forms, postags, deprels = [], [], []
             for name in self.FORM_NAMES:
-                forms.append(self.form_alpha.get(s.data[ctx[name]]['form'], 1) if ctx[name] else 0)
+                forms.append(self.form_alpha.get(data[ctx[name]]['form'], 1) if ctx[name] else 0)
             for name in self.POS_NAMES:
-                postags.append(self.pos_alpha.get(s.data[ctx[name]]['pos']) if ctx[name] else 0)
+                postags.append(self.pos_alpha.get(data[ctx[name]]['pos']) if ctx[name] else 0)
             for name in self.DEPREL_NAMES:
-                deprels.append(self.deprel_alpha.get(s.result[ctx[name]]['deprel']) if ctx[name] else 0)
+                deprels.append(self.deprel_alpha.get(result[ctx[name]]['deprel']) if ctx[name] else 0)
             ret.append((forms, postags, deprels))
         return ret
 

@@ -56,7 +56,7 @@ def main():
     devel_dataset = read_dataset(opts.development)
     logging.info("Loaded {0} development sentences.".format(len(devel_dataset)))
     test_dataset = read_dataset(opts.test)
-    logging.info("Loaded {0} development sentences.".format(len(devel_dataset)))
+    logging.info("Loaded {0} test sentences.".format(len(test_dataset)))
 
     form_alphabet = get_alphabet(train_dataset, 'form')
     logging.info("# {0} forms in alphabet".format(len(form_alphabet)))
@@ -95,7 +95,8 @@ def main():
             valid_actions = [_a for _a in parser.get_actions() if s.valid(_a)]
             a = valid_actions[np.random.randint(0, len(valid_actions))]
             r = s.scored_transit(a)
-            memory.append((s_copy, a, r))
+            s_next_copy = s.copy()
+            memory.append((s_copy, a, r, s_next_copy))
     logging.info("Finish random initialization process, memory size {0}".format(len(memory)))
 
     # Learning DQN
@@ -104,9 +105,9 @@ def main():
 
     eps = opts.eps_init
     eps_decay_rate = (opts.eps_init - opts.eps_final) / opts.eps_decay_steps
+    logging.info('eps decay from {0} to {1} by {2} steps'.format(opts.eps_init, opts.eps_final, opts.eps_decay_steps))
     cost = 0.
-    n_actions = parser.num_actions()
-    model.sync_target(session)
+    model.update_target(session)
     while iteration <= opts.max_iter:
         if n == 0:
             iteration += 1
@@ -126,7 +127,7 @@ def main():
             p = np.random.rand()
             if p > eps:
                 ctx = parser.extract_features(s)
-                x = parser.parameterize_X([ctx], s)
+                x = parser.parameterize_X([ctx])
                 prediction = model.policy(session, x)[0]
                 best, best_action = find_best(parser, s, prediction)
                 chosen_action_name = best_action
@@ -135,51 +136,39 @@ def main():
                 chosen_action_name = valid_actions[np.random.randint(0, len(valid_actions))]
             s_copy = s.copy()
             r = s.scored_transit(chosen_action_name)
+            s_next_copy = s.copy()
 
-            memory.append((s_copy, chosen_action_name, r))
+            memory.append((s_copy, chosen_action_name, r, s_next_copy))
             if len(memory) > opts.memory_size:
                 memory = memory[-opts.memory_size:]
 
-            batch_X, batch_action, batch_Y = [], [], []
-            for batch_id in np.random.choice(len(memory), opts.batch_size):
-                state, action_name, reward = memory[batch_id]
-                ctx = parser.extract_features(state)
-                x = parser.parameterize_X([ctx], state)
-                aid = parser.get_action(action_name)
-                next_state = state.copy()
-                next_state.transit(action_name)
-                if not next_state.terminate():
-                    ctx2 = parser.extract_features(next_state)
-                    x2 = parser.parameterize_X([ctx2], next_state)
-                    prediction = model.target_policy(session, x2)[0]
-                    best, best_action = find_best(parser, next_state, prediction)
-                    y = opts.discount * best + reward
-                else:
-                    y = reward
-                batch_X.append(x[0])
-                batch_action.append(aid)
-                batch_Y.append(y)
-            cost += model.train(session, batch_X, batch_action, batch_Y)
+            ids = np.random.choice(len(memory), opts.batch_size)
+            xs = parser.parameterize_X([parser.extract_features(memory[i][0]) for i in ids])
+            next_xs = parser.parameterize_X([parser.extract_features(memory[i][3]) for i in ids])
+            actions = [parser.get_action(memory[i][1]) for i in ids]
+            ys = np.array([memory[i][2] for i in ids])
+            next_ys = model.target_policy(session, next_xs)
+            masked_next_ys = np.amax(next_ys, axis=1) * opts.discount
+            mask = [p for p, i in enumerate(ids) if memory[i][3].terminate()]
+            masked_next_ys[mask] = 0.
+            ys += masked_next_ys
+            cost += model.train(session, xs, actions, ys)
             eps -= eps_decay_rate
 
             n_batch += 1
             if n_batch % opts.target_update_freq == 0:
-                model.sync_target(session)
+                model.update_target(session)
                 logging.info("target network is synchronized.")
-            if opts.evaluate_stops > 0 and n_batch % opts.evaluate_stops == 0:
-                uas = evaluate(devel_dataset, session, parser, model)
-                logging.info('At {0}, UAS={1}'.format(n_batch, uas))
-                if uas > best_uas:
-                    best_uas = uas
-                    uas = evaluate(test_dataset, session, parser, model)
-                    logging.info('New best achieved: {0}, test: {1}'.format(best_uas, uas))
 
         # MOVE to the next instance.
         n += 1
-        if n == len(train_dataset):
-            n = 0
+        if (opts.evaluate_stops > 0 and n % opts.evaluate_stops == 0) or n == len(train_dataset):
             uas = evaluate(devel_dataset, session, parser, model)
-            logging.info('Iteration {0} done, Cost={1}, UAS={2}'.format(iteration, cost, uas))
+            if n == len(train_dataset):
+                logging.info('Iteration {0} done, Cost={1}, UAS={2}'.format(iteration, cost, uas))
+                n = 0
+            else:
+                logging.info('At {0}, eps={1} UAS={2}'.format(n_batch, eps, uas))
             if uas > best_uas:
                 best_uas = uas
                 uas = evaluate(test_dataset, session, parser, model)

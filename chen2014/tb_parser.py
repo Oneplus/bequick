@@ -11,7 +11,10 @@ class State(object):
         self.result = [{} for _ in range(len(data))]
 
     def __str__(self):
-        return "stack: {0}\nbuffer: {1}\nresult: {2}".format(str(self.stack), str(self.buffer), str(self.result))
+        stack_str = str(self.stack)
+        buffer_str = "[{0} .. {1}]".format(self.buffer[0], self.buffer[1]) if len(self.buffer) > 0 else "[]"
+        result_str = ", ".join(["{0}: {1}".format(i, res) for i, res in enumerate(self.result) if len(res) > 0])
+        return "stack: {0}\nbuffer: {1}\nresult: {2}".format(stack_str, buffer_str, result_str)
 
     def shift(self):
         self.stack.append(self.buffer[0])
@@ -101,11 +104,14 @@ class State(object):
                 return False
             if self.stack[-2] == 0:  # root not reduced
                 return False
+            if action.split('-')[1] in ('root', 'ROOT', 'HED'): # left root not allowed
+                return False
         elif action.startswith('RA'):
             if len(self.stack) < 2:
                 return False
-            if self.stack[-2] == 0 and action.split('-')[1] not in ('root', 'ROOT', 'HED'):
-                return False
+            if self.stack[-2] == 0:
+                if action.split('-')[1] not in ('root', 'ROOT', 'HED') or len(self.buffer) > 0:
+                    return False
         else:
             if len(self.buffer) < 1:
                 return False

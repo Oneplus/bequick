@@ -184,3 +184,6 @@ class DeepQNetwork(Network):
 
     def sync_target(self, session):
         session.run(self.sync)
+
+    def classify(self, session, inputs):
+        return self.policy(session, inputs)

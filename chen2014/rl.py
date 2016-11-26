@@ -111,10 +111,13 @@ def main():
         if n == 0:
             i += 1
             cost = 0
-            logging.info("Start of iteration {0}, data shuffled.".format(i))
+            logging.info("Start of iteration {0}, eps={1}, data shuffled.".format(i, eps))
             np.random.shuffle(train_dataset)
         data = train_dataset[n]
         n += 1
+        if n == len(train_dataset):
+            n = 0
+
         if not is_projective(data) or not is_tree(data):
             logging.info("{0} is not tree or not projective, skipped.")
             continue
@@ -147,15 +150,16 @@ def main():
                 ctx = parser.extract_features(state)
                 x = parser.parameterize_X([ctx], state)
                 aid = parser.get_action(action_name)
-                state.transit(action_name)
-                if not state.terminate():
-                    ctx2 = parser.extract_features(state)
-                    x2 = parser.parameterize_X([ctx2], state)
+                next_state = state.copy()
+                next_state.transit(action_name)
+                if not next_state.terminate():
+                    ctx2 = parser.extract_features(next_state)
+                    x2 = parser.parameterize_X([ctx2], next_state)
                     prediction = model.target_policy(session, x2)[0]
-                    best, best_action = find_best(parser, state, prediction)
-                    y = opts.discount * best + r
+                    best, best_action = find_best(parser, next_state, prediction)
+                    y = opts.discount * best + reward
                 else:
-                    y = r
+                    y = reward
                 batch_X.append(x[0])
                 mask = np.zeros(n_actions, dtype=np.float32)
                 mask[aid] = 1.

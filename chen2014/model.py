@@ -105,7 +105,7 @@ class DeepQNetwork(Network):
                  l2):
         super(DeepQNetwork, self).__init__(form_size, form_dim, pos_size, pos_dim, deprel_size, deprel_dim, hidden_dim,
                                            output_dim, dropout, l2)
-        self.output = tf.placeholder(tf.float32, shape=(None, self.output_dim), name="y_o")
+        self.output = tf.placeholder(tf.float32, shape=(None, ), name="y_o")
 
         # EMBEDDING in CPU
         with tf.device("/cpu:0"), tf.name_scope("embedding"):
@@ -153,7 +153,7 @@ class DeepQNetwork(Network):
         hidden_layer = tf.nn.relu(tf.add(tf.matmul(inputs, self.W0), self.b0))
         self.q_function = tf.add(tf.matmul(hidden_layer, self.W1), self.b1)
 
-        tgt_hidden_layer = tf.nn.relu(tf.add(tf.matmul(inputs, self.tgt_W0), self.tgt_b0))
+        tgt_hidden_layer = tf.nn.relu(tf.add(tf.matmul(tgt_inputs, self.tgt_W0), self.tgt_b0))
         self.tgt_q_function = tf.add(tf.matmul(tgt_hidden_layer, self.tgt_W1), self.tgt_b1)
 
         # LOSS
@@ -161,11 +161,13 @@ class DeepQNetwork(Network):
             hidden_layer2 = tf.nn.dropout(hidden_layer, self.dropout)
         else:
             hidden_layer2 = hidden_layer
-        self.action = tf.placeholder(tf.float32, shape=(None, self.output_dim), name="action")
+        self.action = tf.placeholder(tf.int32, shape=(None, ), name="action")
+        actions_one_hot = tf.one_hot(self.action, self.output_dim, 1.0, 0.0, name='action_one_hot')
+        predicted_q = tf.reduce_sum(tf.add(tf.matmul(hidden_layer2, self.W1), self.b1) * actions_one_hot,
+                                    reduction_indices=1)
         regularizer = tf.nn.l2_loss(self.W0) + tf.nn.l2_loss(self.b0) + tf.nn.l2_loss(self.W1) + tf.nn.l2_loss(self.b1)
 
-        masked = tf.add(tf.matmul(hidden_layer2, self.W1), self.b1) * self.action
-        self.loss = tf.reduce_mean(tf.square(tf.sub(masked, self.output))) + l2 * regularizer
+        self.loss = tf.reduce_mean(tf.square(tf.sub(predicted_q, self.output))) + l2 * regularizer
         self.optimization = tf.train.RMSPropOptimizer(learning_rate=0.00025, momentum=0.95).minimize(self.loss)
 
     def train(self, session, inputs, action, outputs):

@@ -99,7 +99,7 @@ def main():
     logging.info("Finish random initialization process, memory size {0}".format(len(memory)))
 
     # Learning DQN
-    n, n_batch, i = 0, 0, 0
+    n, n_batch, iteration = 0, 0, 0
     best_uas = 0.
 
     eps = opts.eps_init
@@ -107,16 +107,13 @@ def main():
     cost = 0.
     n_actions = parser.num_actions()
     model.sync_target(session)
-    while i <= opts.max_iter:
+    while iteration <= opts.max_iter:
         if n == 0:
-            i += 1
+            iteration += 1
             cost = 0
-            logging.info("Start of iteration {0}, eps={1}, data shuffled.".format(i, eps))
+            logging.info("Start of iteration {0}, eps={1}, data shuffled.".format(iteration, eps))
             np.random.shuffle(train_dataset)
         data = train_dataset[n]
-        n += 1
-        if n == len(train_dataset):
-            n = 0
 
         if not is_projective(data) or not is_tree(data):
             logging.info("{0} is not tree or not projective, skipped.")
@@ -143,9 +140,8 @@ def main():
             if len(memory) > opts.memory_size:
                 memory = memory[-opts.memory_size:]
 
-            batch_ids = np.random.choice(len(memory), opts.batch_size)
             batch_X, batch_action, batch_Y = [], [], []
-            for batch_id in batch_ids:
+            for batch_id in np.random.choice(len(memory), opts.batch_size):
                 state, action_name, reward = memory[batch_id]
                 ctx = parser.extract_features(state)
                 x = parser.parameterize_X([ctx], state)
@@ -161,10 +157,8 @@ def main():
                 else:
                     y = reward
                 batch_X.append(x[0])
-                mask = np.zeros(n_actions, dtype=np.float32)
-                mask[aid] = 1.
-                batch_action.append(mask)
-                batch_Y.append(y * mask)
+                batch_action.append(aid)
+                batch_Y.append(y)
             cost += model.train(session, batch_X, batch_action, batch_Y)
             eps -= eps_decay_rate
 
@@ -179,12 +173,17 @@ def main():
                     best_uas = uas
                     uas = evaluate(test_dataset, session, parser, model)
                     logging.info('New best achieved: {0}, test: {1}'.format(best_uas, uas))
-        uas = evaluate(devel_dataset, session, parser, model)
-        logging.info('Iteration {0} done, Cost={1}, UAS={2}'.format(i, cost, uas))
-        if uas > best_uas:
-            best_uas = uas
-            uas = evaluate(test_dataset, session, parser, model)
-            logging.info('New best achieved: {0}, test: {1}'.format(best_uas, uas))
+
+        # MOVE to the next instance.
+        n += 1
+        if n == len(train_dataset):
+            n = 0
+            uas = evaluate(devel_dataset, session, parser, model)
+            logging.info('Iteration {0} done, Cost={1}, UAS={2}'.format(iteration, cost, uas))
+            if uas > best_uas:
+                best_uas = uas
+                uas = evaluate(test_dataset, session, parser, model)
+                logging.info('New best achieved: {0}, test: {1}'.format(best_uas, uas))
     logging.info('Finish training, best uas is {0}'.format(best_uas))
 
 if __name__ == "__main__":

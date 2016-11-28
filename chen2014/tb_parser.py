@@ -157,7 +157,7 @@ class Parser(object):
             oracle_actions.append(action)
             instances.append(self.extract_features(s))
             s.transit(action)
-        return self.parameterize_X(instances), self.parameterize_Y(oracle_actions)
+        return self.parameterize_xs(instances), self.parameterize_ys(oracle_actions)
 
     @staticmethod
     def copy_interested_result(ctx, name, src_result, tgt_result):
@@ -212,21 +212,25 @@ class Parser(object):
     POS_NAMES = _1ST_ORDER + _2ND_ORDER
     DEPREL_NAMES = _2ND_ORDER
 
-    def parameterize_X(self, instances):
-        ret = []
-        for ctx in instances:
-            data, result = ctx['data'], ctx['interested_result']
-            forms, postags, deprels = [], [], []
-            for name in self.FORM_NAMES:
-                forms.append(self.form_alpha.get(data[ctx[name]]['form'], 1) if ctx[name] else 0)
-            for name in self.POS_NAMES:
-                postags.append(self.pos_alpha.get(data[ctx[name]]['pos']) if ctx[name] else 0)
-            for name in self.DEPREL_NAMES:
-                deprels.append(self.deprel_alpha.get(result[ctx[name]]['deprel']) if ctx[name] else 0)
-            ret.append((forms, postags, deprels))
+    def parameterize_x(self, ctx):
+        data, result = ctx['data'], ctx['interested_result']
+        forms, postags, deprels = [], [], []
+        for name in self.FORM_NAMES:
+            forms.append(self.form_alpha.get(data[ctx[name]]['form'], 1) if ctx[name] else 0)
+        for name in self.POS_NAMES:
+            postags.append(self.pos_alpha.get(data[ctx[name]]['pos']) if ctx[name] else 0)
+        for name in self.DEPREL_NAMES:
+            deprels.append(self.deprel_alpha.get(result[ctx[name]]['deprel']) if ctx[name] else 0)
+        return forms, postags, deprels
+
+    def parameterize_xs(self, instances):
+        ret = [self.parameterize_x(ctx) for ctx in instances]
         return ret
 
-    def parameterize_Y(self, actions):
+    def parameterize_y(self, action):
+        return self._get_int_action(action)
+
+    def parameterize_ys(self, actions):
         return [self._get_int_action(action) for action in actions]
 
     def num_actions(self):

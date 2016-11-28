@@ -16,7 +16,7 @@ def evaluate(dataset, session, parser, model):
         s = State(d)
         while not s.terminate():
             ctx = parser.extract_features(s)
-            x = parser.parameterize_X([ctx])
+            x = parser.parameterize_xs([ctx])
             best, best_action = None, None
             prediction = model.classify(session, x)[0]
             for aid, p in enumerate(prediction):

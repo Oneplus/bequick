@@ -80,6 +80,18 @@ def main():
     # starting from a random policy
     np.random.shuffle(train_dataset)
     n = 0
+    n_actions = parser.num_actions()
+
+    def get_valid_actions(state):
+        ret = []
+        mask = np.zeros(n_actions, dtype=np.bool)
+        for aid in range(n_actions):
+            name = parser.get_action(aid)
+            if s.valid(name):
+                ret.append(name)
+                mask[aid] = True
+        return ret, mask
+
     while len(memory) < opts.replay_start_size:
         data = train_dataset[n]
         n += 1
@@ -90,13 +102,14 @@ def main():
             continue
         d = [parser.ROOT] + data
         s = State(d)
+        valid_action_name, _ = get_valid_actions(s)
         while not s.terminate():
-            s_copy = s.copy()
-            valid_actions = [_a for _a in parser.get_actions() if s.valid(_a)]
-            a = valid_actions[np.random.randint(0, len(valid_actions))]
+            x = parser.parameterize_x(parser.extract_features(s))
+            a = np.random.choice(valid_action_name)
             r = s.scored_transit(a)
-            s_next_copy = s.copy()
-            memory.append((s_copy, a, r, s_next_copy))
+            next_x = parser.parameterize_x(parser.extract_features(s))
+            valid_action_name, valid_action_mask = get_valid_actions(s)
+            memory.append((x, a, r, next_x, valid_action_mask, s.terminate()))
     logging.info("Finish random initialization process, memory size {0}".format(len(memory)))
 
     # Learning DQN
@@ -125,32 +138,32 @@ def main():
         while not s.terminate():
             # eps-greedy, rollout policy
             p = np.random.rand()
+            x = parser.parameterize_x(parser.extract_features(s))
             if p > eps:
-                ctx = parser.extract_features(s)
-                x = parser.parameterize_X([ctx])
-                prediction = model.policy(session, x)[0]
+                prediction = model.policy(session, [x])[0]
                 best, best_action = find_best(parser, s, prediction)
                 chosen_action_name = best_action
             else:
-                valid_actions = [_a for _a in parser.get_actions() if s.valid(_a)]
-                chosen_action_name = valid_actions[np.random.randint(0, len(valid_actions))]
-            s_copy = s.copy()
+                valid_action_name, _ = get_valid_actions(s)
+                chosen_action_name = np.random.choice(valid_action_name)
             r = s.scored_transit(chosen_action_name)
-            s_next_copy = s.copy()
-
-            memory.append((s_copy, chosen_action_name, r, s_next_copy))
+            next_x = parser.parameterize_x(parser.extract_features(s))
+            valid_action_name, valid_action_mask = get_valid_actions(s)
+            memory.append((x, chosen_action_name, r, next_x, valid_action_mask, s.terminate()))
             if len(memory) > opts.memory_size:
                 memory = memory[-opts.memory_size:]
 
             ids = np.random.choice(len(memory), opts.batch_size)
-            xs = parser.parameterize_X([parser.extract_features(memory[i][0]) for i in ids])
-            next_xs = parser.parameterize_X([parser.extract_features(memory[i][3]) for i in ids])
+            xs = [memory[i][0] for i in ids]
+            next_xs = [memory[i][3] for i in ids]
             actions = [parser.get_action(memory[i][1]) for i in ids]
             ys = np.array([memory[i][2] for i in ids])
             next_ys = model.target_policy(session, next_xs)
+            for row, i in enumerate(ids):
+                next_ys[row, memory[i][4]] = np.NINF
             masked_next_ys = np.amax(next_ys, axis=1) * opts.discount
-            mask = [p for p, i in enumerate(ids) if memory[i][3].terminate()]
-            masked_next_ys[mask] = 0.
+            terminal_mask = np.array([memory[i][5] for i in ids], dtype=np.bool)
+            masked_next_ys[terminal_mask] = 0.
             ys += masked_next_ys
             cost += model.train(session, xs, actions, ys)
             eps -= eps_decay_rate
@@ -158,14 +171,14 @@ def main():
             n_batch += 1
             if n_batch % opts.target_update_freq == 0:
                 model.update_target(session)
-                logging.info("target network is synchronized.")
+                logging.info("target network is synchronized at {0}.".format(n_batch))
 
         # MOVE to the next instance.
         n += 1
         if (opts.evaluate_stops > 0 and n % opts.evaluate_stops == 0) or n == len(train_dataset):
             uas = evaluate(devel_dataset, session, parser, model)
             if n == len(train_dataset):
-                logging.info('Iteration {0} done, Cost={1}, UAS={2}'.format(iteration, cost, uas))
+                logging.info('Iteration {0} done, eps={1}, Cost={2}, UAS={3}'.format(iteration, eps, cost, uas))
                 n = 0
             else:
                 logging.info('At {0}, eps={1} UAS={2}'.format(n_batch, eps, uas))

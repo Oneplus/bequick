@@ -16,12 +16,25 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)-15s %(levelname)s: %(
 
 
 def find_best(parser, state, scores):
-    best_score, best_name = None, None
+    best_score, best_i, best_name = None, None, None
     for i, score in enumerate(scores):
         name = parser.get_action(i)
         if state.valid(name) and (best_score is None or score > best_score):
-            best_score, best_name = score, name
-    return best_score, best_name
+            best_score, best_i, best_name = score, i, name
+    return best_score, best_i, best_name
+
+
+def get_valid_actions(parser, state):
+    n_actions = parser.num_actions()
+    aids, names = [], []
+    mask = np.zeros(n_actions, dtype=np.bool)
+    for aid in range(n_actions):
+        name = parser.get_action(aid)
+        if state.valid(name):
+            aids.append(aid)
+            names.append(name)
+            mask[aid] = True
+    return aids, names, mask
 
 
 def main():
@@ -80,18 +93,6 @@ def main():
     # starting from a random policy
     np.random.shuffle(train_dataset)
     n = 0
-    n_actions = parser.num_actions()
-
-    def get_valid_actions(state):
-        ret = []
-        mask = np.zeros(n_actions, dtype=np.bool)
-        for aid in range(n_actions):
-            name = parser.get_action(aid)
-            if s.valid(name):
-                ret.append(name)
-                mask[aid] = True
-        return ret, mask
-
     while len(memory) < opts.replay_start_size:
         data = train_dataset[n]
         n += 1
@@ -102,14 +103,15 @@ def main():
             continue
         d = [parser.ROOT] + data
         s = State(d)
-        valid_action_name, _ = get_valid_actions(s)
+        valid_ids, valid_names, _ = get_valid_actions(parser, s)
         while not s.terminate():
             x = parser.parameterize_x(parser.extract_features(s))
-            a = np.random.choice(valid_action_name)
-            r = s.scored_transit(a)
+            i = np.random.randint(len(valid_names))
+            chosen_id, chosen_name = valid_ids[i], valid_names[i]
+            r = s.scored_transit(chosen_name)
             next_x = parser.parameterize_x(parser.extract_features(s))
-            valid_action_name, valid_action_mask = get_valid_actions(s)
-            memory.append((x, a, r, next_x, valid_action_mask, s.terminate()))
+            valid_ids, valid_names, valid_mask = get_valid_actions(parser, s)
+            memory.append((x, chosen_id, r, next_x, valid_mask, s.terminate()))
     logging.info("Finish random initialization process, memory size {0}".format(len(memory)))
 
     # Learning DQN
@@ -141,32 +143,35 @@ def main():
             x = parser.parameterize_x(parser.extract_features(s))
             if p > eps:
                 prediction = model.policy(session, [x])[0]
-                best, best_action = find_best(parser, s, prediction)
-                chosen_action_name = best_action
+                best_score, best_id, best_name = find_best(parser, s, prediction)
+                chosen_name, chosen_id = best_name, best_id
             else:
-                valid_action_name, _ = get_valid_actions(s)
-                chosen_action_name = np.random.choice(valid_action_name)
-            r = s.scored_transit(chosen_action_name)
+                valid_ids, valid_names, _ = get_valid_actions(parser, s)
+                i = np.random.randint(len(valid_names))
+                chosen_name, chosen_id = valid_names[i], valid_ids[i]
+            r = s.scored_transit(chosen_name)
             next_x = parser.parameterize_x(parser.extract_features(s))
-            valid_action_name, valid_action_mask = get_valid_actions(s)
-            memory.append((x, chosen_action_name, r, next_x, valid_action_mask, s.terminate()))
+            valid_ids, valid_names, valid_mask = get_valid_actions(parser, s)
+            memory.append((x, chosen_id, r, next_x, valid_mask, s.terminate()))
             if len(memory) > opts.memory_size:
                 memory = memory[-opts.memory_size:]
 
             ids = np.random.choice(len(memory), opts.batch_size)
             xs = [memory[i][0] for i in ids]
             next_xs = [memory[i][3] for i in ids]
-            actions = [parser.get_action(memory[i][1]) for i in ids]
-            ys = np.array([memory[i][2] for i in ids])
+            actions = [memory[i][1] for i in ids]
+            ys = np.array([memory[i][2] for i in ids], dtype=np.float32)
             next_ys = model.target_policy(session, next_xs)
             for row, i in enumerate(ids):
-                next_ys[row, memory[i][4]] = np.NINF
-            masked_next_ys = np.amax(next_ys, axis=1) * opts.discount
-            terminal_mask = np.array([memory[i][5] for i in ids], dtype=np.bool)
-            masked_next_ys[terminal_mask] = 0.
-            ys += masked_next_ys
+                next_ys[row, ~memory[i][4]] = np.NINF
+            next_ys = np.amax(next_ys, axis=1) * opts.discount
+            terminated_mask = np.array([memory[i][5] for i in ids], dtype=np.bool)
+            next_ys[terminated_mask] = 0.
+            ys += next_ys
             cost += model.train(session, xs, actions, ys)
             eps -= eps_decay_rate
+            if eps < opts.eps_final:
+                eps = opts.eps_final
 
             n_batch += 1
             if n_batch % opts.target_update_freq == 0:

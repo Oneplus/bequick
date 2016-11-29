@@ -27,7 +27,7 @@ def is_tree(data):
 
     def travel(root):
         if visited[root]:
-            return False # loop or DAG
+            return False   # loop or DAG
 
         visited[root] = True
         for c in tree[root]:

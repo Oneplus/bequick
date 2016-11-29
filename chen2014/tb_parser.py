@@ -6,13 +6,13 @@ class State(object):
     def __init__(self, data):
         self.n = len(data)
         self.data = data
-        self.stack = []
-        self.buffer = range(len(data))
+        self.stack = [0]
+        self.buffer = range(1, len(data))
         self.result = [{} for _ in range(len(data))]
 
     def __str__(self):
         stack_str = str(self.stack)
-        buffer_str = "[{0} .. {1}]".format(self.buffer[0], self.buffer[1]) if len(self.buffer) > 0 else "[]"
+        buffer_str = "[{0} .. {1}]".format(self.buffer[0], self.buffer[-1]) if len(self.buffer) > 0 else "[]"
         result_str = ", ".join(["{0}: {1}".format(i, res) for i, res in enumerate(self.result) if len(res) > 0])
         return "stack: {0}\nbuffer: {1}\nresult: {2}".format(stack_str, buffer_str, result_str)
 
@@ -83,16 +83,20 @@ class State(object):
             self.shift()
 
     def scored_transit(self, action):
-        if action.startswith('LA'):
+        if action.startswith('LA-'):
+            deprel = action.split('-')[1]
             hed = self.stack[-1]
             mod = self.stack[-2]
-            score = 1. if self.data[mod]['head'] == hed else -1.
+            item = self.data[mod]
+            score = (1. if item['head'] == hed and item['deprel'] == deprel else -1.)
             self.left(action.split('-')[1])
         elif action.startswith('RA'):
+            deprel = action.split('-')[1]
             hed = self.stack[-2]
             mod = self.stack[-1]
+            item = self.data[mod]
+            score = (1. if item['head'] == hed and item['deprel'] == deprel else -1.)
             self.right(action.split('-')[1])
-            score = 1. if self.data[mod]['head'] == hed else -1.
         else:
             self.shift()
             score = 0.
@@ -147,6 +151,7 @@ class Parser(object):
                 name = 'RA-{0}'.format(k)
                 self.actions_cache[name] = len(self.actions)
                 self.actions.append(name)
+        self.n_actions = len(self.deprel_alpha) * 2 - 3
 
     def generate_training_instance(self, data):
         d = [self.ROOT] + data
@@ -234,15 +239,15 @@ class Parser(object):
         return [self._get_int_action(action) for action in actions]
 
     def num_actions(self):
-        return len(self.deprel_alpha) * 2 - 3  # counting from 2, None for 0, UNK for 1
+        return self.n_actions
 
     def get_action(self, a):
         if isinstance(a, str):
             return self._get_int_action(a)
-        elif isinstance(a, int):
+        elif isinstance(a, int) or isinstance(a, long):
             return self._get_string_action(a)
         else:
-            raise AttributeError("a: " + type(a) + " is not support")
+            raise AttributeError("a: " + str(type(a)) + " is not support")
 
     def _get_string_action(self, a):
         return self.actions[a]

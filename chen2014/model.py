@@ -16,6 +16,13 @@ def initialize_word_embeddings(session, form_emb, indices, matrix):
     session.run(tf.scatter_update(form_emb, _indices, matrix))
 
 
+def unpack_inputs(inputs):
+    form = [_[0] for _ in inputs]
+    pos = [_[1] for _ in inputs]
+    deprel = [_[2] for _ in inputs]
+    return form, pos, deprel
+
+
 class Network(object):
     def __init__(self, form_size, form_dim, pos_size, pos_dim, deprel_size, deprel_dim, hidden_dim, output_dim,
                  dropout, l2):
@@ -43,12 +50,6 @@ class Network(object):
         self.pos = tf.placeholder(tf.int32, shape=(None, len(Parser.POS_NAMES), ), name="pos_i")
         self.deprel = tf.placeholder(tf.int32, shape=(None, len(Parser.DEPREL_NAMES), ), name="deprel_i")
         self.output = tf.placeholder(tf.int32, shape=(None, ), name="y_o")
-
-    def unpack_inputs(self, inputs):
-        form = [_[0] for _ in inputs]
-        pos = [_[1] for _ in inputs]
-        deprel = [_[2] for _ in inputs]
-        return form, pos, deprel
 
 
 class Classifier(Network):
@@ -89,13 +90,13 @@ class Classifier(Network):
         self.optimization = tf.train.AdagradOptimizer(learning_rate=0.1).minimize(self.loss)
 
     def train(self, session, inputs, outputs):
-        form, pos, deprel = self.unpack_inputs(inputs)
+        form, pos, deprel = unpack_inputs(inputs)
         _, cost = session.run([self.optimization, self.loss],
                               feed_dict={self.form: form, self.pos: pos, self.deprel: deprel, self.output: outputs})
         return cost
 
     def classify(self, session, inputs):
-        form, pos, deprel = self.unpack_inputs(inputs)
+        form, pos, deprel = unpack_inputs(inputs)
         prediction = session.run(self.prediction, feed_dict={self.form: form, self.pos: pos, self.deprel: deprel})
         return prediction
 
@@ -167,21 +168,21 @@ class DeepQNetwork(Network):
                                     reduction_indices=1)
         regularizer = tf.nn.l2_loss(self.W0) + tf.nn.l2_loss(self.b0) + tf.nn.l2_loss(self.W1) + tf.nn.l2_loss(self.b1)
 
-        self.loss = tf.reduce_mean(tf.square(tf.sub(predicted_q, self.output))) + l2 * regularizer
+        self.loss = tf.reduce_mean(tf.square(predicted_q - self.output)) + l2 * regularizer
         self.optimization = tf.train.RMSPropOptimizer(learning_rate=0.00025, momentum=0.95).minimize(self.loss)
 
     def train(self, session, inputs, action, outputs):
-        form, pos, deprel = self.unpack_inputs(inputs)
+        form, pos, deprel = unpack_inputs(inputs)
         _, cost = session.run([self.optimization, self.loss], feed_dict={
             self.form: form, self.pos: pos, self.deprel: deprel, self.action: action, self.output: outputs})
         return cost
 
     def policy(self, session, inputs):
-        form, pos, deprel = self.unpack_inputs(inputs)
+        form, pos, deprel = unpack_inputs(inputs)
         return session.run(self.q_function, feed_dict={self.form: form, self.pos: pos, self.deprel: deprel})
 
     def target_policy(self, session, inputs):
-        form, pos, deprel = self.unpack_inputs(inputs)
+        form, pos, deprel = unpack_inputs(inputs)
         return session.run(self.tgt_q_function, feed_dict={self.form: form, self.pos: pos, self.deprel: deprel})
 
     def update_target(self, session):

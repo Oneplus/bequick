@@ -1,4 +1,4 @@
-from tb_parser import State
+from chen2014.tb_parser import State
 
 
 def evaluate(dataset, session, parser, model):
@@ -15,8 +15,7 @@ def evaluate(dataset, session, parser, model):
         d = [parser.ROOT] + data
         s = State(d)
         while not s.terminate():
-            ctx = parser.extract_features(s)
-            x = parser.parameterize_xs([ctx])
+            x = parser.parameterize_x(parser.extract_features(s))
             best, best_action = None, None
             prediction = model.classify(session, x)[0]
             for aid, p in enumerate(prediction):

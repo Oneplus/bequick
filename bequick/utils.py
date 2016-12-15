@@ -26,5 +26,5 @@ def zip_open(path):
     elif path.endswith('gz'):
         fpi = gzip.GzipFile(path, 'r')
     else:
-        fpi = open(path, 'r')
+        fpi = open(path, 'r', encoding='utf-8')
     return fpi

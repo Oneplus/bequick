@@ -1,14 +1,9 @@
 #!/usr/bin/env python
-import math
 import tensorflow as tf
-from tb_parser import Parser
+from bequick.tf_utils import random_uniform_matrix
+from chen2014.tb_parser import Parser
 
 tf.set_random_seed(1234)
-
-
-def random_uniform_matrix(n_rows, n_cols):
-    width = math.sqrt(6. / (n_rows + n_cols))
-    return tf.random_uniform((n_rows, n_cols), -width, width)
 
 
 def initialize_word_embeddings(session, form_emb, indices, matrix):
@@ -90,13 +85,13 @@ class Classifier(Network):
         self.optimization = tf.train.AdagradOptimizer(learning_rate=0.1).minimize(self.loss)
 
     def train(self, session, inputs, outputs):
-        form, pos, deprel = unpack_inputs(inputs)
+        form, pos, deprel = inputs
         _, cost = session.run([self.optimization, self.loss],
                               feed_dict={self.form: form, self.pos: pos, self.deprel: deprel, self.output: outputs})
         return cost
 
     def classify(self, session, inputs):
-        form, pos, deprel = unpack_inputs(inputs)
+        form, pos, deprel = inputs
         prediction = session.run(self.prediction, feed_dict={self.form: form, self.pos: pos, self.deprel: deprel})
         return prediction
 
@@ -172,17 +167,17 @@ class DeepQNetwork(Network):
         self.optimization = tf.train.RMSPropOptimizer(learning_rate=0.00025, momentum=0.95).minimize(self.loss)
 
     def train(self, session, inputs, action, outputs):
-        form, pos, deprel = unpack_inputs(inputs)
+        form, pos, deprel = inputs
         _, cost = session.run([self.optimization, self.loss], feed_dict={
             self.form: form, self.pos: pos, self.deprel: deprel, self.action: action, self.output: outputs})
         return cost
 
     def policy(self, session, inputs):
-        form, pos, deprel = unpack_inputs(inputs)
+        form, pos, deprel = inputs
         return session.run(self.q_function, feed_dict={self.form: form, self.pos: pos, self.deprel: deprel})
 
     def target_policy(self, session, inputs):
-        form, pos, deprel = unpack_inputs(inputs)
+        form, pos, deprel = inputs
         return session.run(self.tgt_q_function, feed_dict={self.form: form, self.pos: pos, self.deprel: deprel})
 
     def update_target(self, session):

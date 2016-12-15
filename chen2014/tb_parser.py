@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import copy
+import numpy as np
 
 
 class State(object):
@@ -219,24 +220,37 @@ class Parser(object):
 
     def parameterize_x(self, ctx):
         data, result = ctx['data'], ctx['interested_result']
-        forms, postags, deprels = [], [], []
-        for name in self.FORM_NAMES:
-            forms.append(self.form_alpha.get(data[ctx[name]]['form'], 1) if ctx[name] else 0)
-        for name in self.POS_NAMES:
-            postags.append(self.pos_alpha.get(data[ctx[name]]['pos']) if ctx[name] else 0)
-        for name in self.DEPREL_NAMES:
-            deprels.append(self.deprel_alpha.get(result[ctx[name]]['deprel']) if ctx[name] else 0)
-        return forms, postags, deprels
+        form = np.zeros((1, len(self.FORM_NAMES)), dtype=np.int32)
+        tag = np.zeros((1, len(self.POS_NAMES)), dtype=np.int32)
+        deprel = np.zeros((1, len(self.DEPREL_NAMES)), dtype=np.int32)
+        for i, name in enumerate(self.FORM_NAMES):
+            if ctx[name]:
+                form[0, i] = self.form_alpha.get(data[ctx[name]]['form'], 1)
+        for i, name in enumerate(self.POS_NAMES):
+            if ctx[name]:
+                tag[0, i] = self.pos_alpha.get(data[ctx[name]]['pos'])
+        for i, name in enumerate(self.DEPREL_NAMES):
+            if ctx[name]:
+                deprel[0, i] = self.deprel_alpha.get(result[ctx[name]]['deprel'])
+        return form, tag, deprel
 
     def parameterize_xs(self, instances):
-        ret = [self.parameterize_x(ctx) for ctx in instances]
-        return ret
+        n_instances = len(instances)
+        forms = np.zeros((n_instances, len(self.FORM_NAMES)), dtype=np.int32)
+        tags = np.zeros((n_instances, len(self.POS_NAMES)), dtype=np.int32)
+        deprels = np.zeros((n_instances, len(self.DEPREL_NAMES)), dtype=np.int32)
+        for i, ctx in enumerate(instances):
+            payload = self.parameterize_x(ctx)
+            forms[i] = payload[0]
+            tags[i] = payload[1]
+            deprels[i] = payload[2]
+        return forms, tags, deprels
 
     def parameterize_y(self, action):
         return self._get_int_action(action)
 
     def parameterize_ys(self, actions):
-        return [self._get_int_action(action) for action in actions]
+        return np.array([self._get_int_action(action) for action in actions], dtype=np.int32)
 
     def num_actions(self):
         return self.n_actions

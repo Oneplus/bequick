@@ -1,18 +1,71 @@
 #!/usr/bin/env python
 import sys
+import os
+import platform
 import argparse
 import logging
 import numpy as np
 import tensorflow as tf
-from corpus import read_dataset, get_alphabet
-from tb_parser import Parser, State
-from model import DeepQNetwork, initialize_word_embeddings
-from tree_utils import is_projective, is_tree
-from evaluate import evaluate
-from embedding import load_embedding
+try:
+    from bequick.corpus import read_conllx_dataset, get_alphabet
+except ImportError:
+    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))
+    from bequick.corpus import read_conllx_dataset, get_alphabet
+
+from chen2014.tb_parser import Parser, State
+from chen2014.model import DeepQNetwork, initialize_word_embeddings
+from chen2014.tree_utils import is_projective, is_tree
+from chen2014.evaluate import evaluate
+from bequick.embedding import load_embedding
 
 np.random.seed(1234)
 logging.basicConfig(level=logging.INFO, format='%(asctime)-15s %(levelname)s: %(message)s')
+
+
+class Memory(object):
+    def __init__(self, n_actions, memory_size, batch_size):
+        self.memory_size = memory_size
+        self.n_actions = n_actions
+        self.batch_size = batch_size
+        self.memory_volume = 0
+        self.current_id = 0
+        self.s_t_form = np.zeros((memory_size, len(Parser.FORM_NAMES)), dtype=np.int32)
+        self.s_t_pos = np.zeros((memory_size, len(Parser.POS_NAMES)), dtype=np.int32)
+        self.s_t_deprel = np.zeros((memory_size, len(Parser.DEPREL_NAMES)), dtype=np.int32)
+        self.a_t = np.zeros(memory_size, dtype=np.int32)
+        self.r_t = np.zeros(memory_size, dtype=np.float32)
+        self.s_t_plus_1_form = np.zeros((memory_size, len(Parser.FORM_NAMES)), dtype=np.int32)
+        self.s_t_plus_1_pos = np.zeros((memory_size, len(Parser.POS_NAMES)), dtype=np.int32)
+        self.s_t_plus_1_deprel = np.zeros((memory_size, len(Parser.DEPREL_NAMES)), dtype=np.int32)
+        self.s_t_plus_1_valid_mask = np.zeros((memory_size, n_actions), dtype=np.bool)
+        self.terminate = np.zeros(memory_size, dtype=np.bool)
+
+    def add(self, s_t_form, s_t_pos, s_t_deprel, a_t, r_t, s_t_plus_1_form, s_t_plus_1_pos, s_t_plus_1_deprel,
+            s_t_valid_mask, terminate):
+        self.s_t_form[self.current_id] = s_t_form
+        self.s_t_pos[self.current_id] = s_t_pos
+        self.s_t_deprel[self.current_id] = s_t_deprel
+        self.a_t[self.current_id] = a_t
+        self.r_t[self.current_id] = r_t
+        self.s_t_plus_1_form[self.current_id] = s_t_plus_1_form
+        self.s_t_plus_1_pos[self.current_id] = s_t_plus_1_pos
+        self.s_t_plus_1_deprel[self.current_id] = s_t_plus_1_deprel
+        self.s_t_plus_1_valid_mask[self.current_id] = s_t_valid_mask
+        self.terminate[self.current_id] = terminate
+        self.current_id = (self.current_id + 1) % self.memory_size
+        self.memory_volume += 1
+        if self.memory_volume == self.memory_size:
+            self.memory_volume = self.memory_size
+
+    def volume(self):
+        return self.memory_volume
+
+    def sample(self):
+        ids = np.random.choice(self.volume(), self.batch_size)
+        return (self.s_t_form[ids], self.s_t_pos[ids], self.s_t_deprel[ids],
+                self.a_t[ids], self.r_t[ids],
+                self.s_t_plus_1_form[ids], self.s_t_plus_1_pos[ids], self.s_t_plus_1_deprel[ids],
+                self.s_t_plus_1_valid_mask[ids], self.terminate[ids])
 
 
 def find_best(parser, state, scores):
@@ -63,11 +116,11 @@ def main():
                      help="The size of of states before replay start.")
     opts = cmd.parse_args()
 
-    train_dataset = read_dataset(opts.reference)
+    train_dataset = read_conllx_dataset(opts.reference)
     logging.info("Loaded {0} training sentences.".format(len(train_dataset)))
-    devel_dataset = read_dataset(opts.development)
+    devel_dataset = read_conllx_dataset(opts.development)
     logging.info("Loaded {0} development sentences.".format(len(devel_dataset)))
-    test_dataset = read_dataset(opts.test)
+    test_dataset = read_conllx_dataset(opts.test)
     logging.info("Loaded {0} test sentences.".format(len(test_dataset)))
 
     form_alphabet = get_alphabet(train_dataset, 'form')
@@ -85,16 +138,19 @@ def main():
                          output_dim=parser.num_actions(), dropout=opts.dropout, l2=opts.lamb)
     indices, matrix = load_embedding(opts.embedding, form_alphabet, opts.embedding_size)
 
-    session = tf.Session(config=tf.ConfigProto(device_count={'GPU': 0}))
-    session.run(tf.initialize_all_variables())
+    if platform.system() == 'Windows':
+        session = tf.Session(config=tf.ConfigProto(device_count={'GPU': 0}))
+    else:
+        session = tf.Session()
+    session.run(tf.global_variables_initializer())
     initialize_word_embeddings(session, model.form_emb, indices, matrix)
     logging.info('Embedding is loaded.')
 
-    memory = []
+    memory = Memory(parser.n_actions, opts.memory_size, opts.batch_size)
     # starting from a random policy
     np.random.shuffle(train_dataset)
     n = 0
-    while len(memory) < opts.replay_start_size:
+    while memory.volume() < opts.replay_start_size:
         data = train_dataset[n]
         n += 1
         if n == len(train_dataset):
@@ -111,8 +167,8 @@ def main():
             r = s.scored_transit(chosen_name)
             next_x = parser.parameterize_x(parser.extract_features(s))
             valid_ids, valid_names, valid_mask = get_valid_actions(parser, s)
-            memory.append((x, chosen_id, r, next_x, valid_mask, s.terminate()))
-    logging.info("Finish random initialization process, memory size {0}".format(len(memory)))
+            memory.add(x[0], x[1], x[2], chosen_id, r, next_x[0], next_x[1], next_x[2], valid_mask, s.terminate())
+    logging.info("Finish random initialization process, memory size {0}".format(memory.volume()))
 
     # Learning DQN
     n, n_batch, iteration = 0, 0, 0
@@ -124,6 +180,7 @@ def main():
     cost = 0.
     model.update_target(session)
     logging.info("target network is synchronized at {0}.".format(n_batch))
+
     while iteration <= opts.max_iter:
         if n == 0:
             cost = 0
@@ -142,7 +199,7 @@ def main():
             p = np.random.rand()
             x = parser.parameterize_x(parser.extract_features(s))
             if p > eps:
-                prediction = model.target_policy(session, [x])[0]
+                prediction = model.target_policy(session, x)[0]
                 prediction[~valid_mask] = np.NINF
                 chosen_id = np.argmax(prediction).item()
                 chosen_name = parser.get_action(chosen_id)
@@ -152,19 +209,18 @@ def main():
             r = s.scored_transit(chosen_name)
             next_x = parser.parameterize_x(parser.extract_features(s))
             valid_ids, valid_names, valid_mask = get_valid_actions(parser, s)
-            memory.append((x, chosen_id, r, next_x, valid_mask, s.terminate()))
-            if len(memory) > opts.memory_size:
-                memory = memory[-opts.memory_size:]
+            memory.add(x[0], x[1], x[2], chosen_id, r, next_x[0], next_x[1], next_x[2], valid_mask, s.terminate())
 
-            ids = np.random.choice(len(memory), opts.batch_size)
-            xs = [memory[i][0] for i in ids]
-            next_xs = [memory[i][3] for i in ids]
-            actions = [memory[i][1] for i in ids]
-            terminated = np.array([memory[i][5] for i in ids], dtype=np.float32)
-            ys = np.array([memory[i][2] for i in ids], dtype=np.float32)
+            payload = memory.sample()
+            xs = payload[0], payload[1], payload[2]
+            actions = payload[3]
+            ys = payload[4].copy()
+            next_xs = payload[5], payload[6], payload[7]
+            next_valid_mask = payload[8]
+            terminated = payload[9]
+
             next_ys = model.target_policy(session, next_xs)
-            for row, i in enumerate(ids):
-                next_ys[row, ~memory[i][4]] = -1e30
+            next_ys[~next_valid_mask] = -1e30
             ys += (1 - terminated) * np.amax(next_ys, axis=1) * opts.discount
             cost += model.train(session, xs, actions, ys)
             eps -= eps_decay_rate

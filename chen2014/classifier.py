@@ -1,22 +1,21 @@
 #!/usr/bin/env python
-import sys
 import argparse
 import logging
 import numpy as np
 import tensorflow as tf
-from corpus import read_dataset, get_alphabet
-from tb_parser import Parser
-from model import Classifier, initialize_word_embeddings
-from tree_utils import is_projective, is_tree
-from evaluate import evaluate
-from embedding import load_embedding
+from bequick.corpus import read_conllx_dataset, get_alphabet
+from bequick.embedding import load_embedding
+from chen2014.tb_parser import Parser
+from chen2014.model import Classifier, initialize_word_embeddings
+from chen2014.tree_utils import is_projective, is_tree
+from chen2014.evaluate import evaluate
 
 np.random.seed(1234)
 logging.basicConfig(level=logging.INFO, format='%(asctime)-15s %(levelname)s: %(message)s')
 
-if __name__ == "__main__":
-    cmd = argparse.ArgumentParser("Learning component for chen and manning (2014)'s parser")
-    cmd.add_argument("--model", help="The path to the model.")
+
+def main():
+    cmd = argparse.ArgumentParser("An implementation of Chen and Manning (2014)'s parser")
     cmd.add_argument("--embedding", help="The path to the embedding file.")
     cmd.add_argument("--reference", help="The path to the reference file.")
     cmd.add_argument("--development", help="The path to the development file.")
@@ -33,12 +32,12 @@ if __name__ == "__main__":
     cmd.add_argument("--dropout", dest="dropout", type=float, default=0.5, help="The probability for dropout.")
     opts = cmd.parse_args()
 
-    train_dataset = read_dataset(opts.reference)
+    train_dataset = read_conllx_dataset(opts.reference)
     logging.info("Loaded {0} training sentences.".format(len(train_dataset)))
-    devel_dataset = read_dataset(opts.development)
+    devel_dataset = read_conllx_dataset(opts.development)
     logging.info("Loaded {0} development sentences.".format(len(devel_dataset)))
-    test_dataset = read_dataset(opts.test)
-    logging.info("Loaded {0} development sentences.".format(len(devel_dataset)))
+    test_dataset = read_conllx_dataset(opts.test)
+    logging.info("Loaded {0} development sentences.".format(len(test_dataset)))
 
     form_alphabet = get_alphabet(train_dataset, 'form')
     logging.info("# {0} forms in alphabet".format(len(form_alphabet)))
@@ -54,12 +53,12 @@ if __name__ == "__main__":
     indices, matrix = load_embedding(opts.embedding, form_alphabet, opts.embedding_size)
 
     session = tf.Session()
-    session.run(tf.initialize_all_variables())
+    session.run(tf.global_variables_initializer())
     initialize_word_embeddings(session, model.form_emb, indices, matrix)
     logging.info('Embedding is loaded.')
 
     best_uas = 0.
-    train_samples = []
+    forms, postags, deprels, Ys = [], [], [], []
     for n, train_data in enumerate(train_dataset):
         if not is_tree(train_data):
             logging.info('{0} sentence is not tree, skipped.'.format(n))
@@ -67,17 +66,27 @@ if __name__ == "__main__":
         if not is_projective(train_data):
             logging.info('{0} sentence is not projective, skipped.'.format(n))
             continue
-        X, Y = parser.generate_training_instance(train_data)
-        train_samples.extend(zip(X, Y))
+        xs, ys = parser.generate_training_instance(train_data)
+        forms.append(xs[0])
+        postags.append(xs[1])
+        deprels.append(xs[2])
+        Ys.append(ys)
+    forms = np.concatenate(forms)
+    postags = np.concatenate(postags)
+    deprels = np.concatenate(deprels)
+    Ys = np.concatenate(Ys)
 
-    n_batch, n_samples = 0, len(train_samples)
+    n_batch, n_samples = 0, Ys.shape[0]
+    order = np.arange(n_samples)
     logging.info('Training sample size: {0}'.format(n_samples))
     for i in range(1, opts.max_iter + 1):
-        np.random.shuffle(train_samples)
+        np.random.shuffle(order)
         cost = 0.
-        for s in range(0, n_samples, opts.batch_size):
-            batch = train_samples[s: s + opts.batch_size]
-            cost += model.train(session, [x for x, y in batch], [y for x, y in batch])
+        for batch_start in range(0, n_samples, opts.batch_size):
+            batch_end = batch_start + opts.batch_size if batch_start + opts.batch_size < n_samples else n_samples
+            batch_id = order[batch_start: batch_end]
+            xs, ys = (forms[batch_id], postags[batch_id], deprels[batch_id]), Ys[batch_id]
+            cost += model.train(session, xs, ys)
             n_batch += 1
             if opts.evaluate_stops > 0 and n_batch % opts.evaluate_stops == 0:
                 uas = evaluate(devel_dataset, session, parser, model)
@@ -93,3 +102,6 @@ if __name__ == "__main__":
             uas = evaluate(test_dataset, session, parser, model)
             logging.info('New best achieved: {0}, test: {1}'.format(best_uas, uas))
     logging.info('Finish training, best UAS: {0}'.format(best_uas))
+
+if __name__ == "__main__":
+    main()

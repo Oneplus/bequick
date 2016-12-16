@@ -3,10 +3,12 @@ from __future__ import print_function
 import os
 import sys
 import argparse
-import cPickle as pkl
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))
-from bequick.utils import zip_open
+import pickle as pkl
+try:
+    from bequick.utils import zip_open
+except ImportError:
+    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))
+    from bequick.utils import zip_open
 
 
 def main():

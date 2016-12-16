@@ -81,8 +81,9 @@ class Model(object):
         # shape(pred) => (32, 3)
 
         # LOSS
-        reg = regularizer * (tf.reduce_sum(tf.nn.l2_loss(x) for x in [self.W0, self.b0, self.W1, self.b1]))
-        self.loss = (tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits, self.Y)) + reg)
+        reg = regularizer * (tf.nn.l2_loss(self.W0) + tf.nn.l2_loss(self.b0) +
+                             tf.nn.l2_loss(self.W1) + tf.nn.l2_loss(self.b1))
+        self.loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits, self.Y)) + reg
 
         if algorithm == "adagrad":
             self.optimization = tf.train.AdagradOptimizer(learning_rate=0.01).minimize(self.loss)

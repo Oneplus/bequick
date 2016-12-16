@@ -1,12 +1,15 @@
 #!/usr/bin/env python
+from __future__ import print_function
 import sys
+
+
 if sys.argv[1] == "-":
-    fp1=sys.stdin
+    fp1 = sys.stdin
 else:
     try:
         fp1 = open(sys.argv[1], "r")
-    except:
-        print >> sys.stderr, "failed to open file."
+    except IOError:
+        print("failed to open file.", file=sys.stderr)
         sys.exit(1)
 
 if sys.argv[1] != "-" and sys.argv[2] == "-":
@@ -14,8 +17,8 @@ if sys.argv[1] != "-" and sys.argv[2] == "-":
 else:
     try:
         fp2 = open(sys.argv[2], "r")
-    except:
-        print >> sys.stderr, "failed to open file."
+    except IOError:
+        print("failed to open file.", file=sys.stderr)
         sys.exit(1)
 
 references = [data.split("\n") for data in fp1.read().strip().split("\n\n")]
@@ -34,4 +37,4 @@ for reference, answer in zip(references, answers):
             nr_corr += 1
         nr_tot += 1
     nr_lines += (len(reference) + 1)
-print "tagging accuarcy = %f" % (float(nr_corr) / nr_tot)
+print("tagging accuracy = %f" % (float(nr_corr) / nr_tot))

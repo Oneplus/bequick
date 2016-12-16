@@ -42,3 +42,4 @@ zcat data/conll05st-release/devel/props/devel.24.props.gz > corr.devel
 ./srl-eval.pl sys.devel corr.devel
 ```
 
+## Result

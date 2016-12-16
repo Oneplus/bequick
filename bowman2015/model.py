@@ -62,34 +62,41 @@ class Model(object):
         output = tf.tanh(output)
         # shape(output) => (32, 400)
 
-        width = math.sqrt(6. / (self.hidden_dim * 4 + self.output_dim))
+        # The MLP layer
+        sentence_hidden_dim = self.hidden_dim * 4
+        width = math.sqrt(6. / (sentence_hidden_dim * 2))
         self.W0 = tf.Variable(
-            tf.random_uniform((self.hidden_dim * 4, self.output_dim), -width, width),
+            tf.random_uniform((sentence_hidden_dim, sentence_hidden_dim), -width, width),
             name="W0")
-        # shape(W0) => (400, 3)
-        self.b0 = tf.Variable(tf.zeros([self.output_dim]), name="b0")
-        # shape(b0) => (3)
-        self.pred = tf.nn.softmax(tf.matmul(output, self.W0) + self.b0)
+        # shape(W0) => (400, 400)
+        self.b0 = tf.Variable(tf.zeros([sentence_hidden_dim]), name="b0")
+        # shape(b0) => (400)
+        width = math.sqrt(6. / (sentence_hidden_dim + self.output_dim))
+        self.W1 = tf.Variable(
+            tf.random_uniform((sentence_hidden_dim, self.output_dim), -width, width),
+            name="W1")
+        self.b1 = tf.Variable(tf.zeros([self.output_dim]), name="b1")
+        logits = tf.matmul(tf.nn.relu(tf.matmul(output, self.W0) + self.b0), self.W1) + self.b1
+        self.predication = tf.nn.softmax(logits)
         # shape(pred) => (32, 3)
 
         # LOSS
-        reg = regularizer * (tf.nn.l2_loss(self.W0) + tf.nn.l2_loss(self.b0))
-        self.loss = (tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(self.pred, self.Y)) + reg)
+        reg = regularizer * (tf.reduce_sum(tf.nn.l2_loss(x) for x in [self.W0, self.b0, self.W1, self.b1]))
+        self.loss = (tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits, self.Y)) + reg)
 
         if algorithm == "adagrad":
-            self.optm = tf.train.AdagradOptimizer(learning_rate=0.01).minimize(self.loss)
+            self.optimization = tf.train.AdagradOptimizer(learning_rate=0.01).minimize(self.loss)
         elif algorithm == "adadelta":
-            self.optm = tf.train.AdadeltaOptimizer(learning_rate=0.01).minimize(self.loss)
+            self.optimization = tf.train.AdadeltaOptimizer(learning_rate=0.01).minimize(self.loss)
         elif algorithm == "adam":
-            self.optm = tf.train.AdamOptimizer().minimize(self.loss)
+            self.optimization = tf.train.AdamOptimizer().minimize(self.loss)
         else:
             global_step = tf.Variable(0, trainable=False)
             learning_rate = tf.train.exponential_decay(0.01, global_step, 100000, 0.96)
             opt = tf.train.GradientDescentOptimizer(learning_rate=learning_rate)
-            tvars = tf.trainable_variables()
-            grads, _ = tf.clip_by_global_norm(tf.gradients(self.loss, tvars), 5.)
-            self.optm = opt.apply_gradients(zip(grads, tvars), global_step=global_step)
-
+            variables = tf.trainable_variables()
+            gradients, _ = tf.clip_by_global_norm(tf.gradients(self.loss, variables), 5.)
+            self.optimization = opt.apply_gradients(zip(gradients, variables), global_step=global_step)
 
     def init(self):
         self.session = tf.Session()
@@ -102,19 +109,19 @@ class Model(object):
     def train(self, X1, X2, Y):
         """
 
-        :param X:
+        :param X1:
+        :param X2:
         :param Y:
-        :param steps:
         :return:
         """
-        _, cost = self.session.run([self.optm, self.loss], feed_dict={self.X1: X1, self.X2: X2, self.Y: Y})
+        _, cost = self.session.run([self.optimization, self.loss], feed_dict={self.X1: X1, self.X2: X2, self.Y: Y})
         return cost
 
     def classify(self, X1, X2):
         """
 
-        :param X:
-        :param steps:
+        :param X1:
+        :param X2:
         :return:
         """
-        return self.session.run(self.pred, feed_dict={self.X1: X1, self.X2: X2})
+        return self.session.run(self.predication, feed_dict={self.X1: X1, self.X2: X2})

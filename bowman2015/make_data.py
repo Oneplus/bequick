@@ -8,11 +8,13 @@ import os
 import sys
 import json
 import argparse
-import cPickle as pkl
+import pickle as pkl
 from nltk.tree import Tree
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))
-from bequick.alphabet import Alphabet
+try:
+    from bequick.alphabet import Alphabet
+except ImportError:
+    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))
+    from bequick.alphabet import Alphabet
 
 
 def extract_words_from_tree(context):

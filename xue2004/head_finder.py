@@ -1,6 +1,8 @@
 #!/usr/bin/env python
+from __future__ import print_function
 import sys
-from constituent import Constituent
+from xue2004.constituent import Constituent
+
 
 class AbstractHeadFindingRules(object):
     def __init__(self):
@@ -54,7 +56,7 @@ class AbstractHeadFindingRules(object):
         elif how[0] == "rightexcept":
             hid = self.find_rightexcept_head(t, how)
         else:
-            raise("ERROR: invalid direction type")
+            raise AttributeError("ERROR: invalid direction type")
 
         if hid < 0:
             if last_resort:
@@ -166,26 +168,26 @@ VB:left,TO,VBD,VBN,MD,VBZ,VB,VBG,VBP,VP,AUX,AUXG,ADJP,JJP,NN,NNS,JJ,NP,NNP
 META:left
 XS:right,IN
 '''
+
     def __init__(self):
         super(CollinsHeadFindingRules, self).__init__()
 
 
 class AbstractHeadFinder(object):
     def __init__(self):
-        pass
+        self.hf = None
 
     def run(self, tree):
-        '''
+        """
         Parameter
         ---------
         tree: nltk.tree.ParentedTree
             The input tree.
-        '''
+        """
         self.percolate_heads(tree, self.hf)
 
-
     def percolate_heads(self, node, hf):
-        '''
+        """
         Find the head word of the given node.
 
         Parameter
@@ -194,8 +196,7 @@ class AbstractHeadFinder(object):
             The input phrase head.
         tokens: list
             The output tokens.
-        '''
-        #print node.pprint(margin=sys.maxint)
+        """
         if node.terminal():
             node.head_word = node[0]
         else:
@@ -205,18 +206,18 @@ class AbstractHeadFinder(object):
             if head is not None:
                 node.head_word = head.head_word
             else:
-                print >> sys.stderr, "Head is None:", id(self)
+                print("Head is None: {0}".format(id(self)), file=sys.stderr)
 
 
 class CollinsHeadFinder(AbstractHeadFinder):
     def __init__(self):
+        super(CollinsHeadFinder, self).__init__()
         self.hf = CollinsHeadFindingRules()
 
 
-if __name__=="__main__":
-    #from nltk.tree import ParentedTree
+if __name__ == "__main__":
     t = Constituent.fromstring("(S1 (S (NP (NNP Ms.) (NNP Haag)) (VP (VBZ plays) (NP (NNP Elianti))) (. .)))")
     head_finder = CollinsHeadFinder()
     head_finder.run(t)
 
-    print "head word is:", t[0].head_word
+    print("head word is:", t[0].head_word)

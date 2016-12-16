@@ -1,29 +1,30 @@
 #!/usr/bin/env python
+from __future__ import print_function
 import re
-import sys
-from constituent import locate_node
+from xue2004.constituent import locate_node
+
 
 def get_predicate_positions(prop):
-    '''
+    """
     Get the position of the predicate.
 
     Parameters
     ----------
-    props: str
+    prop: str
         The string props matrix
 
     Return
     ------
     retval: list of tuple 2
         Each element indicate the starting and ending position of the predicate.
-    '''
+    """
     mat = [line.strip().split() for line in prop]
     nr_rows, nr_columns = len(mat), len(mat[0])
     for row in mat:
         assert(len(row) == nr_columns)
 
     retval = []
-    for i in xrange(1, nr_columns):
+    for i in range(1, nr_columns):
         key = None
         start, end = None, None
         for j in xrange(0, nr_rows):
@@ -39,7 +40,7 @@ def get_predicate_positions(prop):
 
 
 def get_arguments_of_predicate(prop, predicate):
-    '''
+    """
     Get the arguments of the predicate.
 
     Parameters
@@ -52,16 +53,15 @@ def get_arguments_of_predicate(prop, predicate):
     Return
     ------
     retval: list
-    '''
+    """
     mat = [line.strip().split() for line in prop]
     nr_rows, nr_columns = len(mat), len(mat[0])
     for row in mat:
         assert len(row) == nr_columns, "nr columns not equals"
 
-    for i in xrange(1, nr_columns):
-        key = None
+    for i in range(1, nr_columns):
         start, end = None, None
-        for j in xrange(0, nr_rows):
+        for j in range(0, nr_rows):
             token = mat[j][i]
             if token.startswith("(V*"):
                 start = j
@@ -74,7 +74,7 @@ def get_arguments_of_predicate(prop, predicate):
 
     status, start, end = None, -1, -1
     retval = []
-    for j in xrange(0, nr_rows):
+    for j in range(0, nr_rows):
         token = mat[j][i]
         if token.startswith("("):
             m = re.search("\(([^\*]+)\*", token)
@@ -85,17 +85,19 @@ def get_arguments_of_predicate(prop, predicate):
             assert(status is not None)
             end = j + 1
             if status != "V":
-                #assert status not in retval, "same argument type occurs multiple times."
+                # assert status not in retval, "same argument type occurs multiple times."
                 retval.append((status, start, end))
     return retval
 
 
 def locate_predicate(t, slc):
-    '''
+    """
     Get the tree element of the predicate.
 
     Parameters
     ----------
+    t:
+        something
     slc: int or tuple
         The position of the predicate
 
@@ -103,10 +105,11 @@ def locate_predicate(t, slc):
     ------
     retval: nltk.tree.Constituent
         The tree node.
-    '''
+    """
     retval = None
     if isinstance(slc, tuple):
-        assert t.start <= slc[0] and t.end >= slc[1], "%d, %d, %d, %d, %s" % (t.start, t.end, slc[0], slc[1], t.pprint(margin=sys.maxint))
+        assert t.start <= slc[0] and t.end >= slc[1], "{0}, {1}, {2}, {3}, {4}".format(t.start, t.end, slc[0], slc[1],
+                                                                                       t.pprint())
         retval = locate_node(t, slc, lambda t: t.label() != "S")
         # If cannot allocate in the right range, return the verb
         if retval is None:
@@ -119,8 +122,7 @@ def locate_predicate(t, slc):
     return retval
 
 
-
-if __name__=="__main__":
+if __name__ == "__main__":
     text = '''\
 -                    (A0*      
 -                       *)     
@@ -129,4 +131,4 @@ play                  (V*)
 -                       *      '''
     text = text.split("\n")
     ret = get_predicate_arguments(text)
-    print ret
+    print(ret)

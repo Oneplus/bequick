@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-import re
+
 
 def get_target_indices(target):
     retval = []
@@ -7,4 +7,3 @@ def get_target_indices(target):
         if line.strip() != "-":
             retval.append(idx)
     return retval
-

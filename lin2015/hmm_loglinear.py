@@ -7,12 +7,14 @@ import numpy as np
 import tensorflow as tf
 from hmmlearn.hmm import _BaseHMM, check_random_state
 from hmmlearn.utils import iter_from_X_lengths
-from sklearn import metrics
+from sklearn.metrics import v_measure_score
 try:
     from bequick.corpus import read_conllx_dataset, get_alphabet
+    from lin2015.metrics import many_to_one_score
 except ImportError:
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))
     from bequick.corpus import read_conllx_dataset, get_alphabet
+    from lin2015.metrics import many_to_one_score
 
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)-15s %(levelname)s: %(message)s')
@@ -54,7 +56,7 @@ class LogLinear(object):
         :param Y: array-like, (n_samples, n_components)
         :return cost: float
         """
-        history = [0., 0.]
+        history = [np.NINF, np.NINF]
         for i in range(self.n_iter):
             n_samples = X.shape[0]
             cost = 0.
@@ -69,6 +71,16 @@ class LogLinear(object):
             history[0], history[1] = history[1], cost
             if np.abs(history[1] - history[0]) < self.tol:
                 break
+
+    def LBFGS(self, X, Y):
+        """
+
+        :param X: array-like, (n_samples, n_features)
+        :param Y: array-like, (n_samples, n_components)
+        :return cost: float
+        """
+        optimizer = tf.contrib.opt.ScipyOptimizerInterface(self.loss, method='L-BFGS-B')
+        optimizer.minimize(self.session, feed_dict={self.X: X, self.Y: Y})
 
     def predict_log_proba(self, X):
         """
@@ -87,7 +99,8 @@ class LogLinearHMM(_BaseHMM):
                  startprob_prior=1.0, transmat_proior=1.0,
                  algorithm="viterbi", random_state=None,
                  n_iter=10, tol=1e-2, verbose=False,
-                 params="ste", init_params="ste"):
+                 params="ste", init_params="ste",
+                 lbfgs=False):
         _BaseHMM.__init__(self, n_components=n_components,
                           startprob_prior=startprob_prior,
                           transmat_prior=transmat_proior,
@@ -95,6 +108,7 @@ class LogLinearHMM(_BaseHMM):
                           random_state=random_state,
                           n_iter=n_iter, tol=tol, verbose=verbose,
                           params=params, init_params=init_params)
+        self.lbfgs = lbfgs
 
     def _init(self, X, lengths=None):
         if not self._check_input_symbols(X):
@@ -114,7 +128,7 @@ class LogLinearHMM(_BaseHMM):
             if not hasattr(self, "n_templates"):
                 self.n_templates = X[0].shape[0]
             self.logres_model = LogLinear(n_components=self.n_components, n_templates=self.n_templates,
-                                          n_features=self.n_features, batch_size=128)
+                                          n_features=self.n_features, batch_size=128, n_iter=1)
 
     def _check(self):
         super(LogLinearHMM, self)._check()
@@ -132,7 +146,7 @@ class LogLinearHMM(_BaseHMM):
 
     def _initialize_sufficient_statistics(self):
         stats = super(LogLinearHMM, self)._initialize_sufficient_statistics()
-        stats['ctx'] = np.zeros(shape=(self.n_instances, self.n_templates), dtype=np.float32)   # the context
+        stats['ctx'] = np.zeros(shape=(self.n_instances, self.n_templates), dtype=np.int32)   # the context
         stats['posteriors'] = np.zeros(shape=(self.n_instances, self.n_components), dtype=np.float32)
         stats['ntokens'] = 0
         return stats
@@ -150,7 +164,10 @@ class LogLinearHMM(_BaseHMM):
     def _do_mstep(self, stats):
         super(LogLinearHMM, self)._do_mstep(stats)
         if 'e' in self.params:
-            self.logres_model.fit(stats['ctx'], stats['posteriors'])
+            if self.lbfgs:
+                self.logres_model.LBFGS(stats['ctx'], stats['posteriors'])
+            else:
+                self.logres_model.fit(stats['ctx'], stats['posteriors'])
             stats['ntokens'] = 0
 
     def _check_input_symbols(self, X):
@@ -226,7 +243,7 @@ def main():
     LOG.info('data transformed, {0} samples, {1} sequences {2} features.'.format(
         X.shape[0], lengths.shape[0], len(feature_alphabet)))
 
-    model = LogLinearHMM(n_components=n_pos, verbose=True, n_iter=50)
+    model = LogLinearHMM(n_components=n_pos, random_state=1, verbose=True, n_iter=50)
     model.fit(X, lengths)
 
     Y_pred = model.predict(X, lengths)

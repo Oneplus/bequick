@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 import re
 import sys
-from constituent import Constituent, path
+from xue2004.constituent import Constituent, path
 from nltk.stem import WordNetLemmatizer
+
 lemmatizer = WordNetLemmatizer()
+
 
 def _meta_predicate(predicate):
     if predicate.terminal():
@@ -12,6 +14,7 @@ def _meta_predicate(predicate):
         name = predicate.leaves()
         return "_".join(name)
 
+
 def _meta_predicate_postag(predicate):
     if predicate.terminal():
         return predicate.label()
@@ -19,15 +22,19 @@ def _meta_predicate_postag(predicate):
         name = [pos for form, pos in predicate.pos()]
         return "_".join(name)
 
+
 def _meta_predicate_lemma(predicate):
     name = predicate.leaves()[0]
     return lemmatizer.lemmatize(name, pos='v')
 
+
 def _meta_phrase_type(constituent):
     return constituent.label()
 
+
 def _meta_headword(constituent):
     return constituent.head_word
+
 
 def _meta_voice(predicate):
     words = predicate.root().leaves()
@@ -46,11 +53,13 @@ def _meta_voice(predicate):
             return "passive"
     return "active"
 
+
 def _meta_subcat(predicate):
     parent = predicate.parent()
     retval = "%s->" % parent.label()
     retval += "|".join([kid.label() for kid in parent])
     return retval
+
 
 def _meta_position(constituent, predicate):
     if constituent.end < predicate.start:
@@ -60,8 +69,10 @@ def _meta_position(constituent, predicate):
     else:
         return "Backward"
 
+
 def _meta_distance(constituent, predicate):
     return len(path(constituent, predicate))
+
 
 def _extract_path(predicate, constituent):
     payload = path(constituent, predicate)
@@ -73,59 +84,76 @@ def _extract_path(predicate, constituent):
         else:
             retval += "#"
     retval = retval[:-1]
-    return ("PATH=%s" % retval)
+    return "PATH=%s" % retval
+
 
 def _extract_headword(constituent):
-    return ("HEWD=%s" % constituent.head_word)
+    return "HEWD=%s" % constituent.head_word
+
 
 def _extract_headword_postag(constituent):
     tree = constituent.root()
     words = tree.leaves()
     index = words.index(constituent.head_word)
     postag = tree[tree.leaf_treeposition(index)[:-1]].label()
-    return ("HEWDPOS=%s" % postag)
+    return "HEWDPOS=%s" % postag
+
 
 def _extract_predicate(predicate):
     return "PRED=%s" % _meta_predicate(predicate)
 
+
 def _extract_predicate_lemma(predicate):
     return "PRED-LEMMA=%s" % _meta_predicate_lemma(predicate)
+
 
 def _extract_predicate_postag(predicate):
     return "PRED-POS=%s" % _meta_predicate_postag(predicate)
 
+
 def _extract_distance(constituent, predicate):
     return "DIST=%d" % _meta_distance(constituent, predicate)
+
 
 def _extract_phrase_type(constituent):
     return "PHT=%s" % _meta_phrase_type(constituent)
 
+
 def _extract_position(constituent, predicate):
     return "POS=%s" % _meta_position(constituent, predicate)
+
 
 def _extract_subcat(predicate):
     return "SUBCAT=%s" % _meta_subcat(predicate)
 
+
 def _extract_predicate_phrase_type_combo(constituent, predicate):
     return "PRED-PHT=%s-%s" % (_meta_predicate(predicate), _meta_phrase_type(constituent))
+
 
 def _extract_predicate_headword_combo(constituent, predicate):
     return "PRED-HW=%s-%s" % (_meta_predicate(predicate), _meta_headword(constituent))
 
+
 def _extract_distance_predicate_phrase(constituent, predicate):
     return "PRED-DIST=%s-%d" % (_meta_predicate(predicate), _meta_distance(constituent, predicate))
+
 
 def _extract_voice(predicate):
     return "VOICE=%s" % _meta_voice(predicate)
 
+
 def _extract_voice_position(constituent, predicate):
     return "VOI-POS=%s-%s" % (_meta_voice(predicate), _meta_position(constituent, predicate))
+
 
 def _extract_lexicalized_constituent_type(constituent, predicate):
     return "LEXPRE=%s-%s" % (_meta_predicate(predicate), constituent.label())
 
+
 def _extract_lexicalized_headword(constituent, predicate):
     return "LEXHED=%s-%s" % (_meta_predicate(predicate), constituent.head_word)
+
 
 def _extract_head_of_pp_parent(constituent):
     cat = constituent.parent().label().split("-")[0]
@@ -134,12 +162,17 @@ def _extract_head_of_pp_parent(constituent):
     else:
         return "HEDPP=False"
 
+
 def extract_feature(predicate, constituent):
-    '''
+    """
     Parameter
     ---------
     predicate:
-    '''
+
+    Return
+    ------
+    list
+    """
     return [
             # AI
             _extract_path(predicate, constituent),

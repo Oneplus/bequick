@@ -21,6 +21,12 @@ B-VP    w[-2]=said      w[-1]=it        w[0]=signed
 B-NP    w[-2]=it        w[-1]=signed    w[0]=a
 ```
 
-## Runing CoNLL00 Chunking Task
+## Running CoNLL00 Chunking Task
 
 Things has be prepared in script `pipeline.sh`. Just run `bash pipeline.sh` to get the result.
+
+## Result
+
+| Test | Tagging P | F-score |
+|-----|----------|--------|
+|      | 95.69 | 92.79 |

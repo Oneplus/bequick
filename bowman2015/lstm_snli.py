@@ -59,6 +59,17 @@ def get_max_length(train_data, devel_data, test_data):
     return max_sentence1_length, max_sentence2_length
 
 
+def transform(chunk, model):
+    Y = np.zeros(shape=model.batch_size, dtype=np.int32)
+    X1 = np.zeros(shape=(model.max_sentence1_steps, model.batch_size), dtype=np.int32)
+    X2 = np.zeros(shape=(model.max_sentence2_steps, model.batch_size), dtype=np.int32)
+    for b, c in enumerate(chunk):
+        Y[b] = c.gold_label
+        X1[: len(c.sentence1), b] = c.sentence1
+        X2[: len(c.sentence2), b] = c.sentence2
+    return X1, X2, Y
+
+
 def train(train_data, devel_data, test_data, model, max_iteration=10):
     """
 
@@ -67,30 +78,19 @@ def train(train_data, devel_data, test_data, model, max_iteration=10):
     :param test_data:
     :param model: bowman2015.Model
     :param max_iteration:
-    :param batch_size:
     :return:
     """
-    def transduce(chunk):
-        Y = np.zeros(shape=model.batch_size, dtype=np.int32)
-        X1 = np.zeros(shape=(model.max_sentence1_steps, model.batch_size), dtype=np.int32)
-        X2 = np.zeros(shape=(model.max_sentence2_steps, model.batch_size), dtype=np.int32)
-        for b, c in enumerate(chunk):
-            Y[b] = c.gold_label
-            X1[: len(c.sentence1), b] = c.sentence1
-            X2[: len(c.sentence2), b] = c.sentence2
-        return X1, X2, Y
-
     for iteration in range(max_iteration):
         random.shuffle(train_data)
         cost = 0.
         for chunk in batch(train_data, model.batch_size):
-            X1, X2, Y = transduce(chunk)
+            X1, X2, Y = transform(chunk)
             cost += model.train(X1, X2, Y)
         logging.info("cost after iteration %d: %f" % (iteration, cost))
 
         n_corr, n_total = 0, 0
         for chunk in batch(devel_data, model.batch_size):
-            X1, X2, Y = transduce(chunk)
+            X1, X2, Y = transform(chunk)
             prediction = model.classify(X1, X2)
             n_total += len(chunk)
             n_corr += sum((1 if np.argmax(p) == y else 0) for p, y in zip(prediction, Y))
@@ -98,7 +98,7 @@ def train(train_data, devel_data, test_data, model, max_iteration=10):
 
         n_corr, n_total = 0, 0
         for chunk in batch(test_data, model.batch_size):
-            X1, X2, Y = transduce(chunk)
+            X1, X2, Y = transform(chunk)
             prediction = model.classify(X1, X2)
             n_total += len(chunk)
             n_corr += sum((1 if np.argmax(p) == y else 0) for p, y in zip(prediction, Y)[: len(chunk)])
@@ -121,6 +121,7 @@ def load_data(path):
 def load_word_embedding(form_dim, path):
     """
 
+    :param form_dim:
     :param path:
     :return:
     """
@@ -135,7 +136,7 @@ def load_word_embedding(form_dim, path):
         payload[int(tokens[0])] = np.array([float(i) for i in tokens[1:]], dtype=np.float32)
     matrix = np.zeros(shape=(len(indices), dim))
     for rank, index in enumerate(indices):
-        matrix[rank,:] = payload[index]
+        matrix[rank, :] = payload[index]
     return indices, matrix
 
 
@@ -146,7 +147,8 @@ def main():
     cmd.add_argument("--hidden_dim", type=int, required=True, help="the dim of the hidden output.")
     cmd.add_argument("--layers", type=int, default=1, help='the number of layers.')
     cmd.add_argument("--batch_size", type=int, default=32, help='the batch size.')
-    cmd.add_argument("--algorithm", default="clipping_sgd", help="the algorithm [clipping_sgd, adagrad, adadelta, adam].")
+    cmd.add_argument("--algorithm", default="clipping_sgd",
+                     help="the algorithm [clipping_sgd, adagrad, adadelta, adam].")
     cmd.add_argument("--max_iter", default=10, type=int, help="the maximum iteration.")
     cmd.add_argument("--embedding", help="the path to the word embedding.")
     cmd.add_argument("train", help="the path to the training file.")

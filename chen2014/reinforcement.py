@@ -54,7 +54,7 @@ class Memory(object):
         self.terminate[self.current_id] = terminate
         self.current_id = (self.current_id + 1) % self.memory_size
         self.memory_volume += 1
-        if self.memory_volume == self.memory_size:
+        if self.memory_volume >= self.memory_size:
             self.memory_volume = self.memory_size
 
     def volume(self):
@@ -232,7 +232,7 @@ def main():
                 model.update_target(session)
                 logging.info("target network is synchronized at {0}.".format(n_batch))
 
-        # MOVE to the next instance.
+        # MOVE to the next sentence.
         n += 1
         if (opts.evaluate_stops > 0 and n % opts.evaluate_stops == 0) or n == len(train_dataset):
             uas = evaluate(devel_dataset, session, parser, model)

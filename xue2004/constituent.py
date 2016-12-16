@@ -1,7 +1,8 @@
 #!/usr/bin/env python
-import re
-import sys
+from __future__ import print_function
 from nltk.tree import ParentedTree
+import unittest
+
 
 class Constituent(ParentedTree):
     def __init__(self, node, children=None):
@@ -19,7 +20,7 @@ class Constituent(ParentedTree):
     def build_index(self, start):
         if self.terminal():
             self.start = start
-            self.end = start+ 1
+            self.end = start + 1
         else:
             self.start = start
             for kid in self:
@@ -29,14 +30,14 @@ class Constituent(ParentedTree):
 
 
 def path(x, y):
-    '''
+    """
     Parameter
     ---------
     x: Constituent
         The 
     y: Constituent
         The
-    '''
+    """
     def path_to_root(t):
         output = []
         while t.parent() is not None:
@@ -45,12 +46,13 @@ def path(x, y):
         return output
     xpath = path_to_root(x)
     ypath = path_to_root(y)
-    consist = True
+    lca = None
     for x_, y_ in zip(xpath[::-1], ypath[::-1]):
         if id(x_) == id(y_):
             continue
         lca = x_.parent()
         break
+    assert lca is not None, "lca should not be None."
     upstream = []
     p = x
     while p != lca:
@@ -81,25 +83,25 @@ def build_constituent_tree(words, brackets):
 
 
 def generate_candidate_constituents(t, predicate):
-    '''
+    """
     Travel to the top of the tree from the predicate and collect all the
     siblings. Since the `nltk.tree.ParentedTree.left_sibling` and
     `nltk.tree.ParentedTree.right_sibling` only return the first left-right
     sibling, code is hacked according to: 
     http://www.nltk.org/_modules/nltk/tree.html
-    '''
+    """
     retval = []
     now = predicate
     while now.parent() is not None:
         parent_index = now.parent_index()
-        for i in xrange(0, parent_index):
+        for i in range(0, parent_index):
             left_sibling = now._parent[i]
             retval.append(left_sibling)
             phrase = left_sibling.label().split("-")[0]
             if phrase == "PP":
                 for kid in left_sibling:
                     retval.append(kid)
-        for i in xrange(parent_index+ 1, len(now._parent)):
+        for i in range(parent_index + 1, len(now._parent)):
             right_sibling = now._parent[i]
             retval.append(right_sibling)
             phrase = right_sibling.label().split("-")[0]
@@ -118,24 +120,29 @@ def locate_node(t, slc, extra):
             return locate_node(kid, slc, extra)
 
 
-import unittest
 class ConstituentUnittest(unittest.TestCase):
     def setUp(self):
         tkn = "(S1 (S (NP (NNP Ms.) (NNP Haag)) (VP (VBZ plays) (NP (NNP Elianti))) (. .)))"
         self.t = Constituent.fromstring(tkn)
         self.t.build_index(0)
 
-    test1 = lambda self: self.assertEqual("S1", self.t.label())
-    test2 = lambda self: self.assertTrue(self.t[0].nonterminal())
-    test3 = lambda self: self.assertTrue(self.t[0][0][0].terminal())
-    test4 = lambda self: self.assertEqual(0, self.t[0].start)
-    test5 = lambda self: self.assertEqual(5, self.t[0].end)
-    test6 = lambda self: self.assertEqual(2, self.t[0][1].start)
-    test7 = lambda self: self.assertEqual(4, self.t[0][1].end)
+    def test1(self): self.assertEqual("S1", self.t.label())
+
+    def test2(self): self.assertTrue(self.t[0].nonterminal())
+
+    def test3(self): self.assertTrue(self.t[0][0][0].terminal())
+
+    def test4(self): self.assertEqual(0, self.t[0].start)
+
+    def test5(self): self.assertEqual(5, self.t[0].end)
+
+    def test6(self): self.assertEqual(2, self.t[0][1].start)
+
+    def test7(self): self.assertEqual(4, self.t[0][1].end)
+
     def test8(self):
         for d, p in path(self.t[0][0][0], self.t[0][1][1]):
-            print d, p.pprint()
+            print(d, p.pprint())
 
-if __name__=="__main__":
+if __name__ == "__main__":
     unittest.main()
-

@@ -22,6 +22,10 @@ def extract_words_from_tree(context):
     return tree.leaves()
 
 
+def extract_words_from_binary_tree(context):
+    return context.replace('(', ' ').replace(')', ' ').replace('-LRB-', '(').replace('-RRB-', ')').split()
+
+
 def get_in_files(prefix, suffix):
     return ["%s_%s.%s" % (prefix, split, suffix) for split in ["train", "dev", "test"]]
 
@@ -35,6 +39,7 @@ def convert_and_output(label_alphabet, form_alphabet, gold_label, sentence1, sen
     :param sentence1: list(str)
     :param sentence2: list(str)
     :param fpo: file
+    :param is_train: bool
     :return:
     """
     gold_label_id = label_alphabet.insert(gold_label) if is_train else label_alphabet.get(gold_label)
@@ -43,6 +48,34 @@ def convert_and_output(label_alphabet, form_alphabet, gold_label, sentence1, sen
     print('%d\t%s\t%s' % (gold_label_id,
                           ' '.join(str(i) for i in sentence1_ids),
                           ' '.join(str(i) for i in sentence2_ids)), file=fpo)
+
+
+def load_json_data(filename):
+    ret = []
+    for line in open(filename, 'r'):
+        payload = json.loads(line)
+        gold_label = payload["gold_label"]
+        if gold_label == '-':  # according to the README.txt, where theres is no majority exists (marked as '-')
+            continue
+        sentence1 = extract_words_from_binary_tree(payload["sentence1_binary_parse"])
+        sentence2 = extract_words_from_binary_tree(payload["sentence2_binary_parse"])
+        ret.append((gold_label, sentence1, sentence2))
+    return ret
+
+
+def load_tsv_data(filename):
+    ret = []
+    fpi = open(filename, 'r')
+    fpi.readline()  # skip the header.
+    for line in fpi:
+        payload = line.strip().split('\t')
+        gold_label = payload[0]
+        if gold_label == '-':
+            continue
+        sentence1 = extract_words_from_tree(payload[3])
+        sentence2 = extract_words_from_tree(payload[4])
+        ret.append((gold_label, sentence1, sentence2))
+    return ret
 
 
 def parse_json(prefix, label_alphabet, form_alphabet):
@@ -57,8 +90,8 @@ def parse_json(prefix, label_alphabet, form_alphabet):
             gold_label = payload["gold_label"]
             if gold_label == '-': # according to the README.txt, where theres is no majority exists (marked as '-')
                 continue
-            sentence1 = extract_words_from_tree(payload["sentence1_parse"])
-            sentence2 = extract_words_from_tree(payload["sentence2_parse"])
+            sentence1 = extract_words_from_binary_tree(payload["sentence1_binary_parse"])
+            sentence2 = extract_words_from_binary_tree(payload["sentence2_binary_parse"])
             convert_and_output(label_alphabet, form_alphabet, gold_label, sentence1, sentence2, fpo,
                                True if name is "train" else False)
 

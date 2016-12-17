@@ -12,8 +12,7 @@ except ImportError:
 
 
 def main():
-    usage = "Converting raw form word embedding into indexed word embedding."
-    cmd = argparse.ArgumentParser(usage=usage)
+    cmd = argparse.ArgumentParser("Converting raw form word embedding into indexed word embedding.")
     cmd.add_argument("dictionary", help="the path to the dictionary.")
     cmd.add_argument("raw_embeddings", help="the path to the raw embedding.")
     args = cmd.parse_args()

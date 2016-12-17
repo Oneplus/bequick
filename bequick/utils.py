@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 import bz2
 import gzip
+import codecs
 
 
 def batch(iterable, n=1):
@@ -24,7 +25,7 @@ def zip_open(path):
     if path.endswith('bz2'):
         fpi = bz2.BZ2File(path, 'r')
     elif path.endswith('gz'):
-        fpi = gzip.GzipFile(path, 'r')
+        fpi = gzip.open(path, 'r')
     else:
-        fpi = open(path, 'r', encoding='utf-8')
+        fpi = codecs.open(path, 'r', encoding='utf-8')
     return fpi

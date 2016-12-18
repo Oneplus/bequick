@@ -37,7 +37,7 @@ class Alphabet(object):
         :param name: str,
         :return:
         """
-        if isinstance(name, str):
+        if isinstance(name, str) or isinstance(name, unicode):
             if name not in self.str2id:
                 if not self.have_default_initialization:
                     raise NameError("name %s not found in alphabet." % name)
@@ -60,9 +60,9 @@ class Alphabet(object):
         :param item:
         :return:
         """
-        if isinstance(item, str):
+        if isinstance(item, str) or isinstance(item, unicode):
             return item in self.str2id
         elif isinstance(item, int):
             return item in self.id2str
         else:
-            raise TypeError("Unsupported type in alphabet!")
+            raise TypeError("Unsupported type {0} in alphabet!".format(str(type(item))))

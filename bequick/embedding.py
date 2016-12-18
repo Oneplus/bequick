@@ -1,11 +1,11 @@
 import numpy as np
-
+from utils import zip_open
 
 def load_embedding(path, form_alphabet, dim, set_none_to_zeros=False):
     indices = []
     matrix = np.zeros(shape=(len(form_alphabet), dim), dtype=np.float32)
     row = 0
-    for line in open(path, 'r', encoding='utf-8'):
+    for line in zip_open(path):
         tokens = line.strip().split()
         word = tokens[0]
         if word in form_alphabet:

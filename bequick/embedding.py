@@ -17,4 +17,4 @@ def load_embedding(path, form_alphabet, dim, set_none_to_zeros=False):
         indices.append(0)
         matrix[row, :] = np.zeros(dim, dtype=np.float32)
         row += 1
-    return indices, matrix[:row, :]
+    return np.array(indices, dtype=np.int32), matrix[:row, :]

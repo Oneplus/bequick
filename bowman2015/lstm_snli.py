@@ -6,7 +6,6 @@ import argparse
 import logging
 import numpy as np
 import tensorflow as tf
-from collections import namedtuple
 from itertools import chain
 from sklearn.metrics import accuracy_score
 try:
@@ -26,7 +25,6 @@ except ImportError:
 tf.set_random_seed(1234)
 logging.basicConfig(level=logging.INFO, format='%(asctime)-15s %(levelname)s: %(message)s')
 LOG = logging.getLogger('bowman2015')
-Instance = namedtuple('Instance', ['gold_label', 'sentence1', 'sentence2'], verbose=False)
 
 
 class Model(object):
@@ -54,8 +52,6 @@ class Model(object):
             def get_inputs(input_placeholder, max_steps):
                 # inputs for the first sentence
                 inputs = tf.nn.embedding_lookup(self.form_emb, input_placeholder)
-                # shape(inputs) => (max_steps, batch_size, form_dim)
-                inputs = tf.reshape(inputs, [-1, max_steps, self.form_dim])
                 # shape(inputs) => (batch_size, max_steps, form_dim)
                 inputs = [tf.squeeze(input_, [1]) for input_ in tf.split(1, max_steps, inputs)]
                 # shape(input_) => (batch_size, 1, form_dim)
@@ -73,19 +69,23 @@ class Model(object):
             bw_stacked_lstm_cell = tf.nn.rnn_cell.MultiRNNCell([bw_lstm_cell] * n_layers, state_is_tuple=True)
             return fw_stacked_lstm_cell, bw_stacked_lstm_cell
 
-        s1_fw_cell, s1_bw_cell = get_stacked_lstm_cell()
-        s2_fw_cell, s2_bw_cell = get_stacked_lstm_cell()
+        # s1_fw_cell, s1_bw_cell = get_stacked_lstm_cell()
+        # s2_fw_cell, s2_bw_cell = get_stacked_lstm_cell()
+        fw_cell, bw_cell = get_stacked_lstm_cell()
 
         with tf.variable_scope('sentence1'):
-            outputs1, _, _ = tf.nn.bidirectional_rnn(s1_fw_cell, s1_bw_cell, inputs1, sequence_length=self.L1,
-                                                     dtype=tf.float32)
+            outputs1, _, _ = tf.nn.bidirectional_rnn(fw_cell, bw_cell, inputs1,
+                                                     sequence_length=self.L1, dtype=tf.float32)
         with tf.variable_scope('sentence2'):
-            outputs2, _, _ = tf.nn.bidirectional_rnn(s2_fw_cell, s2_bw_cell, inputs2, sequence_length=self.L2,
-                                                     dtype=tf.float32)
-
-        output = tf.concat(1, [outputs1[-1], outputs2[-1]])
+            outputs2, _, _ = tf.nn.bidirectional_rnn(fw_cell, bw_cell, inputs2,
+                                                     sequence_length=self.L2, dtype=tf.float32)
+        output1_bw = tf.split(1, 2, outputs1[0])[1]
+        output1_fw = tf.split(1, 2, outputs1[-1])[0]
+        output2_bw = tf.split(1, 2, outputs2[0])[1]
+        output2_fw = tf.split(1, 2, outputs2[-1])[0]
+        output = tf.concat(1, [output1_fw, output1_bw, output2_fw, output2_bw])
         # shape(output) => (32, 400)
-        output = tf.tanh(output)
+        output = tf.nn.relu(output)
         # shape(output) => (32, 400)
 
         # The MLP layer
@@ -124,8 +124,7 @@ class Model(object):
         self.session.run(tf.global_variables_initializer())
 
     def initialize_word_embeddings(self, indices, matrix):
-        _indices = [tf.to_int32(i) for i in indices]
-        self.session.run(tf.scatter_update(self.form_emb, _indices, matrix))
+        self.session.run(tf.scatter_update(self.form_emb, indices, matrix))
 
     def train(self, x1, l1, x2, l2, y):
         """
@@ -169,8 +168,7 @@ def get_max_length(train_data, devel_data, test_data):
     return max_sentence1_length, max_sentence2_length
 
 
-def transform(dataset, max_sentence1_steps, max_sentence2_steps, train=False,
-              form_alphabet=None,
+def transform(dataset, max_sentence1_steps, max_sentence2_steps, train=False, form_alphabet=None,
               label_alphabet=None):
     if form_alphabet is None:
         form_alphabet = Alphabet(use_default_initialization=True)
@@ -185,21 +183,23 @@ def transform(dataset, max_sentence1_steps, max_sentence2_steps, train=False,
     for i, data in enumerate(dataset):
         Y[i] = label_alphabet.insert(data[0]) if train else label_alphabet.get(data[0])
         l1 = len(data[1])
-        X1[i, : l1] = [form_alphabet.insert(token) if train else form_alphabet.get(token) for token in data[1]]
+        X1[i, : l1] = np.array([form_alphabet.insert(t) if train else form_alphabet.get(t) for t in data[1]],
+                               dtype=np.int32)
         L1[i] = l1
         l2 = len(data[2])
-        X2[i, : l2] = [form_alphabet.insert(token) if train else form_alphabet.get(token) for token in data[2]]
+        X2[i, : l2] = np.array([form_alphabet.insert(t) if train else form_alphabet.get(t) for t in data[2]],
+                               dtype=np.int32)
+        L2[i] = l2
     return X1, L1, X2, L2, Y, form_alphabet, label_alphabet
 
 
 def main():
-    usage = "An implementation of A large annotated corpus for learning natural language inference"
-    cmd = argparse.ArgumentParser(usage=usage)
+    cmd = argparse.ArgumentParser("An implementation of Bowman et al. (2015)")
     cmd.add_argument("--form_dim", type=int, required=True, help="the dim of the form.")
     cmd.add_argument("--hidden_dim", type=int, required=True, help="the dim of the hidden output.")
     cmd.add_argument("--layers", type=int, default=1, help='the number of layers.')
     cmd.add_argument("--batch_size", type=int, default=32, help='the batch size.')
-    cmd.add_argument("--algorithm", default="clipping_sgd",
+    cmd.add_argument("--algorithm", default="adam",
                      help="the algorithm [clipping_sgd, adagrad, adadelta, adam].")
     cmd.add_argument("--max_iter", default=10, type=int, help="the maximum iteration.")
     cmd.add_argument("--embedding", help="the path to the word embedding.")
@@ -218,10 +218,6 @@ def main():
 
     train_X1, train_L1, train_X2, train_L2, train_Y, form_alphabet, label_alphabet \
         = transform(train_data, max_sentence1_steps, max_sentence2_steps, True)
-
-    if args.embedding is not None:
-        indices, matrix = load_embedding(args.embedding, form_alphabet, args.form_dim)
-
     devel_X1, devel_L1, devel_X2, devel_L2, devel_Y, _, _ \
         = transform(devel_data, max_sentence1_steps, max_sentence2_steps, False, form_alphabet, label_alphabet)
     test_X1, test_L1, test_X2, test_L2, test_Y, _, _ \
@@ -244,6 +240,7 @@ def main():
                   batch_size=args.batch_size,
                   regularizer=0.0)
     model.init()
+    LOG.info("model is initialized.")
 
     if args.embedding is not None:
         indices, matrix = load_embedding(args.embedding, form_alphabet, args.form_dim)
@@ -251,7 +248,7 @@ def main():
         LOG.info("%d word embedding is loaded." % len(indices))
 
     n_train, n_devel, n_test = train_Y.shape[0], devel_Y.shape[0], test_Y.shape[0]
-    order = np.arange(n_train)
+    order = np.arange(n_train, dtype=np.int32)
     for iteration in range(args.max_iter):
         np.random.shuffle(order)
         cost = 0.
@@ -262,23 +259,23 @@ def main():
             cost += model.train(x1, l1, x2, l2, y)
         LOG.info("cost after iteration {0}: {1}".format(iteration, cost))
 
-        prediction = np.zeros(n_devel, dtype=np.int32)
+        prediction = np.full(n_devel, n_classes + 1, dtype=np.int32)
         for batch_start in range(0, n_devel, args.batch_size):
             batch_end = batch_start + args.batch_size if batch_start + args.batch_size < n_devel else n_devel
             prediction[batch_start: batch_end] = model.classify(devel_X1[batch_start: batch_end],
                                                                 devel_L1[batch_start: batch_end],
                                                                 devel_X2[batch_start: batch_end],
                                                                 devel_L2[batch_start: batch_end])
-        LOG.info("dev precision {0}".format(accuracy_score(devel_Y, prediction)))
+        LOG.info("dev accuracy: {0}".format(accuracy_score(devel_Y, prediction)))
 
-        prediction = np.zeros(n_test, dtype=np.int32)
+        prediction = np.full(n_test, n_classes + 1, dtype=np.int32)
         for batch_start in range(0, n_test, args.batch_size):
             batch_end = batch_start + args.batch_size if batch_start + args.batch_size < n_test else n_test
             prediction[batch_start: batch_end] = model.classify(test_X1[batch_start: batch_end],
                                                                 test_L1[batch_start: batch_end],
                                                                 test_X2[batch_start: batch_end],
                                                                 test_L2[batch_start: batch_end])
-        LOG.info("dev precision {0}".format(accuracy_score(test_Y, prediction)))
+        LOG.info("test accuracy: {0}".format(accuracy_score(test_Y, prediction)))
 
 if __name__ == "__main__":
     main()

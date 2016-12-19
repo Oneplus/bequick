@@ -1,5 +1,10 @@
+#!/usr/bin/env python
 import numpy as np
-from utils import zip_open
+try:
+    from .io_utils import zip_open
+except (ValueError, SystemError) as e:
+    from io_utils import zip_open
+
 
 def load_embedding(path, form_alphabet, dim, set_none_to_zeros=False):
     indices = []

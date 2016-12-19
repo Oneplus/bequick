@@ -7,16 +7,23 @@ import logging
 import numpy as np
 import tensorflow as tf
 try:
-    from bequick.corpus import read_conllx_dataset, get_alphabet
+    import bequick
 except ImportError:
+    import sys
+    import os
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))
-    from bequick.corpus import read_conllx_dataset, get_alphabet
-
-from chen2014.tb_parser import Parser, State
-from chen2014.model import DeepQNetwork, initialize_word_embeddings
-from chen2014.tree_utils import is_projective, is_tree
-from chen2014.evaluate import evaluate
+from bequick.corpus import read_conllx_dataset, get_alphabet
 from bequick.embedding import load_embedding
+try:
+    from .tb_parser import Parser
+    from .model import Classifier, initialize_word_embeddings
+    from .tree_utils import is_projective, is_tree
+    from .evaluate import evaluate
+except (ValueError, SystemError) as e:
+    from tb_parser import Parser
+    from model import Classifier, initialize_word_embeddings
+    from tree_utils import is_projective, is_tree
+    from evaluate import evaluate
 
 np.random.seed(1234)
 logging.basicConfig(level=logging.INFO, format='%(asctime)-15s %(levelname)s: %(message)s')

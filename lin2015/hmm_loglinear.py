@@ -1,7 +1,5 @@
 #!/usr/bin/env python
 import argparse
-import sys
-import os
 import logging
 import numpy as np
 import tensorflow as tf
@@ -9,12 +7,18 @@ from hmmlearn.hmm import _BaseHMM, check_random_state
 from hmmlearn.utils import iter_from_X_lengths
 from sklearn.metrics import v_measure_score
 try:
-    from bequick.corpus import read_conllx_dataset, get_alphabet
-    from lin2015.metrics import many_to_one_score
+    import bequick
 except ImportError:
+    import sys
+    import os
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))
-    from bequick.corpus import read_conllx_dataset, get_alphabet
-    from lin2015.metrics import many_to_one_score
+from bequick.corpus import read_conllx_dataset, get_alphabet
+try:
+    # py3
+    from .metrics import many_to_one_score
+except ValueError:
+    # py2
+    from metrics import many_to_one_score
 
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)-15s %(levelname)s: %(message)s')

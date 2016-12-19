@@ -5,10 +5,10 @@ import sys
 import argparse
 import pickle as pkl
 try:
-    from bequick.utils import zip_open
+    from bequick.io_utils import zip_open
 except ImportError:
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))
-    from bequick.utils import zip_open
+    from bequick.io_utils import zip_open
 
 
 def main():

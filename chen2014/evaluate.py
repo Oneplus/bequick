@@ -1,4 +1,8 @@
-from chen2014.tb_parser import State
+#!/usr/bin/env python
+try:
+    from .tb_parser import State
+except (ValueError, SystemError) as e:
+    from tb_parser import State
 
 
 def evaluate(dataset, session, parser, model):

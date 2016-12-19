@@ -1,25 +1,21 @@
 #!/usr/bin/env python
 import argparse
 import logging
-import os
-import sys
 import numpy as np
 import tensorflow as tf
-
 try:
-    from graves2008.misc import transform, get_max_steps
-    from bequick.tf_utils import random_uniform_matrix
-    from bequick.corpus import read_conllx_dataset, get_alphabet
-    from bequick.utils import batch
-    from bequick.embedding import load_embedding
+    import bequick
 except ImportError:
+    import sys
+    import os
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))
-    from graves2008.misc import transform, get_max_steps
-    from bequick.tf_utils import random_uniform_matrix
-    from bequick.corpus import read_conllx_dataset, get_alphabet
-    from bequick.utils import batch
-    from bequick.embedding import load_embedding
-
+from bequick.tf_utils import random_uniform_matrix
+from bequick.corpus import read_conllx_dataset, get_alphabet
+from bequick.embedding import load_embedding
+try:
+    from .misc import transform, get_max_steps
+except ValueError:
+    from misc import transform, get_max_steps
 
 tf.set_random_seed(1234)
 logging.basicConfig(level=logging.INFO, format='%(asctime)-15s %(levelname)s: %(message)s')

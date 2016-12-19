@@ -1,7 +1,16 @@
 #!/usr/bin/env python
 import tensorflow as tf
+try:
+    import bequick
+except ImportError:
+    import sys
+    import os
+    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))
 from bequick.tf_utils import random_uniform_matrix
-from chen2014.tb_parser import Parser
+try:
+    from .tb_parser import Parser
+except (ValueError, SystemError) as e:
+    from tb_parser import Parser
 
 tf.set_random_seed(1234)
 

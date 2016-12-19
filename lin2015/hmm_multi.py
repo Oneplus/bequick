@@ -1,18 +1,22 @@
 #!/usr/bin/env python
 import argparse
-import sys
-import os
 import logging
 import numpy as np
-from hmmlearn import hmm
+from hmmlearn.hmm import MultinomialHMM
 from sklearn.metrics import v_measure_score
 try:
-    from bequick.corpus import read_conllx_dataset, get_alphabet
-    from lin2015.metrics import many_to_one_score
+    import bequick
 except ImportError:
+    import sys
+    import os
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))
-    from bequick.corpus import read_conllx_dataset, get_alphabet
-    from lin2015.metrics import many_to_one_score
+from bequick.corpus import read_conllx_dataset, get_alphabet
+try:
+    # py3
+    from .metrics import many_to_one_score
+except ValueError:
+    # py2
+    from metrics import many_to_one_score
 
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)-15s %(levelname)s: %(message)s')
@@ -50,7 +54,7 @@ def main():
     X, Y, lengths = transform(train_set, form_alphabet, pos_alphabet)
     LOG.info('data transformed, {0} samples, {1} sequences.'.format(X.shape[0], lengths.shape[0]))
 
-    model = hmm.MultinomialHMM(n_components=n_pos, verbose=True)
+    model = MultinomialHMM(n_components=n_pos, verbose=True)
     model.fit(X, lengths)
 
     Y_pred = model.predict(X, lengths)

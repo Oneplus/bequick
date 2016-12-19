@@ -1,7 +1,5 @@
 #!/usr/bin/env python
 from __future__ import print_function
-import sys
-import os
 import gzip
 import pickle
 from optparse import OptionParser
@@ -9,12 +7,16 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.feature_extraction import DictVectorizer
 from sklearn.metrics import accuracy_score
 try:
-    from bequick.utils import zip_open
-    from conll2000.conlleval import evaluate, report
-except IOError:
+    import bequick
+except ImportError:
+    import sys
+    import os
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))
-    from bequick.utils import zip_open
-    from conll2000.conlleval import evaluate, report
+from bequick.io_utils import zip_open
+try:
+    from .conlleval import evaluate, report
+except (ValueError, SystemError) as e:
+    from conlleval import evaluate, report
 
 
 def read_dataset(filename):

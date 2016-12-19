@@ -1,7 +1,5 @@
 #!/usr/bin/env python
 from __future__ import print_function
-import os
-import sys
 import argparse
 import logging
 import numpy as np
@@ -9,18 +7,18 @@ import tensorflow as tf
 from itertools import chain
 from sklearn.metrics import accuracy_score
 try:
-    from bequick.alphabet import Alphabet
-    from bequick.utils import zip_open
-    from bequick.tf_utils import random_uniform_matrix
-    from bequick.embedding import load_embedding
-    from bowman2015.corpus import load_json_data
+    import bequick
 except ImportError:
+    import sys
+    import os
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))
-    from bequick.alphabet import Alphabet
-    from bequick.utils import zip_open
-    from bequick.tf_utils import random_uniform_matrix
-    from bequick.embedding import load_embedding
-    from bowman2015.corpus import load_json_data
+from bequick.alphabet import Alphabet
+from bequick.tf_utils import random_uniform_matrix
+from bequick.embedding import load_embedding
+try:
+    from .corpus import load_json_data
+except (ValueError, SystemError) as e:
+    from corpus import load_json_data
 
 tf.set_random_seed(1234)
 logging.basicConfig(level=logging.INFO, format='%(asctime)-15s %(levelname)s: %(message)s')

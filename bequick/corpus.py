@@ -1,8 +1,8 @@
 #!/usr/bin/env python
-import os
-import sys
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))
-from bequick.utils import zip_open
+try:
+    from .io_utils import zip_open
+except (ValueError, SystemError) as e:
+    from io_utils import zip_open
 
 
 def read_postag_dataset(filename):

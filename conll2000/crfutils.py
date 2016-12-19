@@ -32,6 +32,7 @@ def apply_templates(X, templates):
             if values:
                 X[t]['F'].append('%s=%s' % (name, '|'.join(values)))
 
+
 def readiter(fi, names, sep=' '):
     """
     Return an iterator for item sequences read from a file object.
@@ -67,6 +68,7 @@ def readiter(fi, names, sep=' '):
                 item[names[i]] = fields[i]
             X.append(item)
 
+
 def escape(src):
     """
     Escape colon characters from feature names.
@@ -101,6 +103,7 @@ def output_features(fo, X, field=''):
                 fo.write('\t%s:%f' % (escape(a[0]), a[1]))
         fo.write('\n')
     fo.write('\n')
+
 
 def to_crfsuite(X):
     """

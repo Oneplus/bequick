@@ -1,6 +1,4 @@
 #!/usr/bin/env python
-import sys
-import os
 import platform
 import argparse
 import logging
@@ -15,18 +13,19 @@ except ImportError:
 from bequick.corpus import read_conllx_dataset, get_alphabet
 from bequick.embedding import load_embedding
 try:
-    from .tb_parser import Parser
-    from .model import Classifier, initialize_word_embeddings
+    from .tb_parser import Parser, State
+    from .model import DeepQNetwork, initialize_word_embeddings
     from .tree_utils import is_projective, is_tree
     from .evaluate import evaluate
 except (ValueError, SystemError) as e:
-    from tb_parser import Parser
-    from model import Classifier, initialize_word_embeddings
+    from tb_parser import Parser, State
+    from model import DeepQNetwork, initialize_word_embeddings
     from tree_utils import is_projective, is_tree
     from evaluate import evaluate
 
 np.random.seed(1234)
 logging.basicConfig(level=logging.INFO, format='%(asctime)-15s %(levelname)s: %(message)s')
+LOG = logging.getLogger('chen2014-rl')
 
 
 class Memory(object):
@@ -121,24 +120,27 @@ def main():
                      help="The frequency of update target network.")
     cmd.add_argument("--replay-start-size", dest="replay_start_size", type=int, default=50000,
                      help="The size of of states before replay start.")
+    cmd.add_argument("--language", dest="lang", default="en", help="the language")
     opts = cmd.parse_args()
 
     train_dataset = read_conllx_dataset(opts.reference)
-    logging.info("Loaded {0} training sentences.".format(len(train_dataset)))
+    LOG.info("Loaded {0} training sentences.".format(len(train_dataset)))
+    train_dataset = [data for data in train_dataset if is_tree(data) and is_projective(data)]
+    LOG.info("{0} training sentences after filter non-tree and non-projective.".format(len(train_dataset)))
     devel_dataset = read_conllx_dataset(opts.development)
-    logging.info("Loaded {0} development sentences.".format(len(devel_dataset)))
+    LOG.info("Loaded {0} development sentences.".format(len(devel_dataset)))
     test_dataset = read_conllx_dataset(opts.test)
-    logging.info("Loaded {0} test sentences.".format(len(test_dataset)))
+    LOG.info("Loaded {0} test sentences.".format(len(test_dataset)))
 
     form_alphabet = get_alphabet(train_dataset, 'form')
-    logging.info("# {0} forms in alphabet".format(len(form_alphabet)))
+    LOG.info("# {0} forms in alphabet".format(len(form_alphabet)))
     pos_alphabet = get_alphabet(train_dataset, 'pos')
-    logging.info("# {0} postags in alphabet".format(len(pos_alphabet)))
+    LOG.info("# {0} postags in alphabet".format(len(pos_alphabet)))
     deprel_alphabet = get_alphabet(train_dataset, 'deprel')
-    logging.info("# {0} deprel in alphabet".format(len(deprel_alphabet)))
+    LOG.info("# {0} deprel in alphabet".format(len(deprel_alphabet)))
 
     parser = Parser(form_alphabet, pos_alphabet, deprel_alphabet)
-    logging.info("# {0} actions".format(parser.num_actions()))
+    LOG.info("# {0} actions".format(parser.num_actions()))
 
     model = DeepQNetwork(form_size=len(form_alphabet), form_dim=100, pos_size=len(pos_alphabet), pos_dim=20,
                          deprel_size=len(deprel_alphabet), deprel_dim=20, hidden_dim=opts.hidden_size,
@@ -162,8 +164,6 @@ def main():
         n += 1
         if n == len(train_dataset):
             n = 0
-        if not is_projective(data) or not is_tree(data):
-            continue
         d = [parser.ROOT] + data
         s = State(d)
         valid_ids, valid_names, _ = get_valid_actions(parser, s)
@@ -175,7 +175,7 @@ def main():
             next_x = parser.parameterize_x(parser.extract_features(s))
             valid_ids, valid_names, valid_mask = get_valid_actions(parser, s)
             memory.add(x[0], x[1], x[2], chosen_id, r, next_x[0], next_x[1], next_x[2], valid_mask, s.terminate())
-    logging.info("Finish random initialization process, memory size {0}".format(memory.volume()))
+    LOG.info("Finish random initialization process, memory size {0}".format(memory.volume()))
 
     # Learning DQN
     n, n_batch, iteration = 0, 0, 0
@@ -183,10 +183,10 @@ def main():
 
     eps = opts.eps_init
     eps_decay_rate = (opts.eps_init - opts.eps_final) / opts.eps_decay_steps
-    logging.info('eps decay from {0} to {1} by {2} steps'.format(opts.eps_init, opts.eps_final, opts.eps_decay_steps))
+    LOG.info('eps decay from {0} to {1} by {2} steps'.format(opts.eps_init, opts.eps_final, opts.eps_decay_steps))
     cost = 0.
-    model.update_target(session)
-    logging.info("target network is synchronized at {0}.".format(n_batch))
+    # model.update_target(session)
+    # LOG.info("target network is synchronized at {0}.".format(n_batch))
 
     while iteration <= opts.max_iter:
         if n == 0:
@@ -194,9 +194,6 @@ def main():
             logging.info("Start of iteration {0}, eps={1}, data shuffled.".format(iteration, eps))
             np.random.shuffle(train_dataset)
         data = train_dataset[n]
-
-        if not is_projective(data) or not is_tree(data):
-            continue
 
         d = [parser.ROOT] + data
         s = State(d)
@@ -237,23 +234,23 @@ def main():
             n_batch += 1
             if n_batch % opts.target_update_freq == 0:
                 model.update_target(session)
-                logging.info("target network is synchronized at {0}.".format(n_batch))
+                LOG.info("target network is synchronized at {0}.".format(n_batch))
 
         # MOVE to the next sentence.
         n += 1
         if (opts.evaluate_stops > 0 and n % opts.evaluate_stops == 0) or n == len(train_dataset):
-            uas = evaluate(devel_dataset, session, parser, model)
+            uas = evaluate(devel_dataset, session, parser, model, True, opts.lang)
             if n == len(train_dataset):
-                logging.info('Iteration {0} done, eps={1}, Cost={2}, UAS={3}'.format(iteration, eps, cost, uas))
+                LOG.info('Iteration {0} done, eps={1}, Cost={2}, UAS={3}'.format(iteration, eps, cost, uas))
                 iteration += 1
                 n = 0
             else:
-                logging.info('At {0}, eps={1} UAS={2}'.format(n_batch, eps, uas))
+                LOG.info('At {0}, eps={1} UAS={2}'.format(n_batch, eps, uas))
             if uas > best_uas:
                 best_uas = uas
-                test_uas = evaluate(test_dataset, session, parser, model)
-                logging.info('New best achieved: {0}, test: {1}'.format(best_uas, test_uas))
-    logging.info('Finish training, best devel uas is {0}, test uas is {1}'.format(best_uas, test_uas))
+                test_uas = evaluate(test_dataset, session, parser, model, True, opts.lang)
+                LOG.info('New best achieved: {0}, test: {1}'.format(best_uas, test_uas))
+    LOG.info('Finish training, best devel uas is {0}, test uas is {1}'.format(best_uas, test_uas))
 
 if __name__ == "__main__":
     main()

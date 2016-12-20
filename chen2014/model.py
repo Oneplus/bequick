@@ -123,9 +123,10 @@ class DeepQNetwork(Network):
                 tf.reshape(tf.nn.embedding_lookup(self.deprel_emb, self.deprel), [-1, self.deprel_features_dim])
             ])
 
-            self.tgt_form_emb = tf.Variable(random_uniform_matrix(self.form_size, self.form_dim), name="tgt_form_emb")
-            self.tgt_pos_emb = tf.Variable(random_uniform_matrix(self.pos_size, self.pos_dim), name="tgt_pos_emb")
-            self.tgt_deprel_emb = tf.Variable(random_uniform_matrix(self.deprel_size, self.deprel_dim), name="tgt_deprel_emb")
+            # according to minh et al (2015), target network is initialized as zero
+            self.tgt_form_emb = tf.Variable(tf.zeros((self.form_size, self.form_dim)), name="tgt_form_emb")
+            self.tgt_pos_emb = tf.Variable(tf.zeros((self.pos_size, self.pos_dim)), name="tgt_pos_emb")
+            self.tgt_deprel_emb = tf.Variable(tf.zeros((self.deprel_size, self.deprel_dim)), name="tgt_deprel_emb")
             tgt_inputs = tf.concat(1, [
                 tf.reshape(tf.nn.embedding_lookup(self.tgt_form_emb, self.form), [-1, self.form_features_dim]),
                 tf.reshape(tf.nn.embedding_lookup(self.tgt_pos_emb, self.pos), [-1, self.pos_features_dim]),
@@ -138,13 +139,13 @@ class DeepQNetwork(Network):
         self.W1 = tf.Variable(random_uniform_matrix(self.hidden_dim, self.output_dim), name="W1")
         self.b1 = tf.Variable(tf.zeros([self.output_dim]), name="b1")
 
-        self.tgt_W0 = tf.Variable(random_uniform_matrix(self.input_dim, self.hidden_dim), name="tgt_W0")
+        self.tgt_W0 = tf.Variable(tf.zeros((self.input_dim, self.hidden_dim)), name="tgt_W0")
         self.tgt_b0 = tf.Variable(tf.zeros([self.hidden_dim]), name="tgt_b0")
-        self.tgt_W1 = tf.Variable(random_uniform_matrix(self.hidden_dim, self.output_dim), name="tgt_W1")
+        self.tgt_W1 = tf.Variable(tf.zeros((self.hidden_dim, self.output_dim)), name="tgt_W1")
         self.tgt_b1 = tf.Variable(tf.zeros([self.output_dim]), name="tgt_b1")
 
         # PARAM SYNC
-        self.sync = [
+        self.update_op = [
             self.tgt_form_emb.assign(self.form_emb),
             self.tgt_pos_emb.assign(self.pos_emb),
             self.tgt_deprel_emb.assign(self.deprel_emb),
@@ -190,7 +191,7 @@ class DeepQNetwork(Network):
         return session.run(self.tgt_q_function, feed_dict={self.form: form, self.pos: pos, self.deprel: deprel})
 
     def update_target(self, session):
-        session.run(self.sync)
+        session.run(self.update_op)
 
     def classify(self, session, inputs):
         return self.policy(session, inputs)

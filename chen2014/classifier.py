@@ -24,6 +24,7 @@ except (ValueError, SystemError) as e:
 
 np.random.seed(1234)
 logging.basicConfig(level=logging.INFO, format='%(asctime)-15s %(levelname)s: %(message)s')
+LOG = logging.getLogger('chen2014')
 
 
 def main():
@@ -41,22 +42,23 @@ def main():
     cmd.add_argument("--ada-alpha", dest="ada_alpha", type=float, default=0.01, help="The Alpha in AdaGrad.")
     cmd.add_argument("--lambda", dest="lamb", type=float, default=1e-8, help="The regularizer parameter.")
     cmd.add_argument("--batch-size", dest="batch_size", type=int, default=5000, help="The size of batch.")
-    cmd.add_argument("--dropout", dest="dropout", type=float, default=0.5, help="The probability for dropout.")
+    cmd.add_argument("--dropout", type=float, default=0.5, help="The probability for dropout.")
+    cmd.add_argument("--language", dest="lang", default="en", help="the language")
     opts = cmd.parse_args()
 
     train_dataset = read_conllx_dataset(opts.reference)
-    logging.info("Loaded {0} training sentences.".format(len(train_dataset)))
+    LOG.info("Loaded {0} training sentences.".format(len(train_dataset)))
     devel_dataset = read_conllx_dataset(opts.development)
-    logging.info("Loaded {0} development sentences.".format(len(devel_dataset)))
+    LOG.info("Loaded {0} development sentences.".format(len(devel_dataset)))
     test_dataset = read_conllx_dataset(opts.test)
-    logging.info("Loaded {0} development sentences.".format(len(test_dataset)))
+    LOG.info("Loaded {0} development sentences.".format(len(test_dataset)))
 
     form_alphabet = get_alphabet(train_dataset, 'form')
-    logging.info("# {0} forms in alphabet".format(len(form_alphabet)))
+    LOG.info("# {0} forms in alphabet".format(len(form_alphabet)))
     pos_alphabet = get_alphabet(train_dataset, 'pos')
-    logging.info("# {0} postags in alphabet".format(len(pos_alphabet)))
+    LOG.info("# {0} postags in alphabet".format(len(pos_alphabet)))
     deprel_alphabet = get_alphabet(train_dataset, 'deprel')
-    logging.info("# {0} deprel in alphabet".format(len(deprel_alphabet)))
+    LOG.info("# {0} deprel in alphabet".format(len(deprel_alphabet)))
 
     parser = Parser(form_alphabet, pos_alphabet, deprel_alphabet)
     model = Classifier(form_size=len(form_alphabet), form_dim=100, pos_size=len(pos_alphabet), pos_dim=20,
@@ -67,7 +69,7 @@ def main():
     session = tf.Session()
     session.run(tf.global_variables_initializer())
     initialize_word_embeddings(session, model.form_emb, indices, matrix)
-    logging.info('Embedding is loaded.')
+    LOG.info('Embedding is loaded.')
 
     best_uas = 0.
     forms, postags, deprels, Ys = [], [], [], []
@@ -90,7 +92,7 @@ def main():
 
     n_batch, n_samples = 0, Ys.shape[0]
     order = np.arange(n_samples)
-    logging.info('Training sample size: {0}'.format(n_samples))
+    LOG.info('Training sample size: {0}'.format(n_samples))
     for i in range(1, opts.max_iter + 1):
         np.random.shuffle(order)
         cost = 0.
@@ -101,19 +103,19 @@ def main():
             cost += model.train(session, xs, ys)
             n_batch += 1
             if opts.evaluate_stops > 0 and n_batch % opts.evaluate_stops == 0:
-                uas = evaluate(devel_dataset, session, parser, model)
-                logging.info('At {0}, UAS={1}'.format((float(n_batch) / n_samples), uas))
+                uas = evaluate(devel_dataset, session, parser, model, True, opts.lang)
+                LOG.info('At {0}, UAS={1}'.format((float(n_batch) / n_samples), uas))
                 if uas > best_uas:
                     best_uas = uas
-                    uas = evaluate(test_dataset, session, parser, model)
-                    logging.info('New best achieved: {0}, test: {1}'.format(best_uas, uas))
-        uas = evaluate(devel_dataset, session, parser, model)
-        logging.info('Iteration {0} done, Cost={1}, UAS={2}'.format(i, cost, uas))
+                    uas = evaluate(test_dataset, session, parser, model, True, opts.lang)
+                    LOG.info('New best achieved: {0}, test: {1}'.format(best_uas, uas))
+        uas = evaluate(devel_dataset, session, parser, model, True, opts.lang)
+        LOG.info('Iteration {0} done, Cost={1}, UAS={2}'.format(i, cost, uas))
         if uas > best_uas:
             best_uas = uas
-            uas = evaluate(test_dataset, session, parser, model)
-            logging.info('New best achieved: {0}, test: {1}'.format(best_uas, uas))
-    logging.info('Finish training, best UAS: {0}'.format(best_uas))
+            uas = evaluate(test_dataset, session, parser, model, True, opts.lang)
+            LOG.info('New best achieved: {0}, test: {1}'.format(best_uas, uas))
+    LOG.info('Finish training, best UAS: {0}'.format(best_uas))
 
 if __name__ == "__main__":
     main()

@@ -105,18 +105,22 @@ class State(object):
 
     def valid(self, action):
         if action.startswith('LA'):
+            is_root = action.split('-')[1] in ('root', 'ROOT', 'HED')
             if len(self.stack) < 2:
                 return False
             if self.stack[-2] == 0:  # root not reduced
                 return False
-            if action.split('-')[1] in ('root', 'ROOT', 'HED'): # left root not allowed
+            if is_root:  # left root not allowed
                 return False
         elif action.startswith('RA'):
+            is_root = action.split('-')[1] in ('root', 'ROOT', 'HED')
             if len(self.stack) < 2:
                 return False
             if self.stack[-2] == 0:
-                if action.split('-')[1] not in ('root', 'ROOT', 'HED') or len(self.buffer) > 0:
+                if not is_root or len(self.buffer) > 0:
                     return False
+            elif is_root:
+                return False
         else:
             if len(self.buffer) < 1:
                 return False

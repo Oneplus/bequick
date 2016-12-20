@@ -27,15 +27,16 @@ def read_conllx_dataset(filename, max_length=None):
     fpi = zip_open(filename)
     for raw_data in fpi.read().strip().split('\n\n'):
         data = []
-        lines = raw_data.split('\n')
+        lines = raw_data.strip().split('\n')
         if max_length is not None and len(lines) > max_length:
             continue
         for line in lines:
-            tokens = line.split('\t')
+            tokens = line.strip().split()
             data.append({
                 'id': int(tokens[0]),
                 'form': tokens[1],
                 'pos': tokens[3],
+                'feat': tokens[5],
                 'head': int(tokens[6]),
                 'deprel': tokens[7]
             })

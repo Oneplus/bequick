@@ -5,13 +5,23 @@ except (ValueError, SystemError) as e:
     from tb_parser import State
 
 
-def evaluate(dataset, session, parser, model):
+def is_punct(token, lang):
+    if lang == 'en' and token['feat'] in (".", ",", ":", "''", "``"):
+        return True
+    elif lang == 'ch' and token['feat'] == 'PU':
+        return True
+    return False
+
+
+def evaluate(dataset, session, parser, model, ignore_punct=False, lang='en'):
     """
 
     :param dataset: list
     :param session: tf.Session()
     :param parser: Parser
     :param model: Network
+    :param ignore_punct: bool
+    :param lang: str
     :return:
     """
     n_uas, n_total = 0, 0
@@ -29,6 +39,8 @@ def evaluate(dataset, session, parser, model):
             s.transit(best_action)
 
         for i in range(1, len(d)):
+            if ignore_punct and is_punct(d[i], lang):
+                continue
             if d[i]['head'] == s.result[i]['head']:
                 n_uas += 1
             n_total += 1

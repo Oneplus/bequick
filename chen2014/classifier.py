@@ -14,13 +14,13 @@ from bequick.embedding import load_embedding
 try:
     from .tb_parser import TransitionSystem, Parser
     from .model import Classifier, initialize_word_embeddings
-    from .tree_utils import is_projective, is_tree
+    from .tree_utils import is_projective_raw, is_tree_raw
     from .evaluate import evaluate
     from .instance_builder import InstanceBuilder
 except (ValueError, SystemError) as e:
     from tb_parser import TransitionSystem, Parser
     from model import Classifier, initialize_word_embeddings
-    from tree_utils import is_projective, is_tree
+    from tree_utils import is_projective_raw, is_tree_raw
     from evaluate import evaluate
     from instance_builder import InstanceBuilder
 
@@ -52,14 +52,16 @@ def main():
     raw_devel = read_conllx_dataset(opts.development)
     raw_test = read_conllx_dataset(opts.test)
     LOG.info("Dataset stats: #train={0}, #devel={1}, #test={2}.".format(len(raw_train), len(raw_devel), len(raw_test)))
+    raw_train = [data for data in raw_train if is_tree_raw(data) and is_projective_raw(data)]
+    LOG.info("{0} training sentences after filtering non-tree and non-projective.".format(len(raw_train)))
 
     form_alphabet = get_alphabet(raw_train, 'form')
     pos_alphabet = get_alphabet(raw_train, 'pos')
     deprel_alphabet = get_alphabet(raw_train, 'deprel')
     form_alphabet['_ROOT_'] = len(form_alphabet)
     pos_alphabet['_ROOT_'] = len(pos_alphabet)
-    LOG.info("Alphabet stats: #form={0} (w/ nil & unk), #pos={1} (w/ nil & unk), #deprel={2} (w/ nil & unk)".format(
-        len(form_alphabet), len(pos_alphabet), len(deprel_alphabet)))
+    LOG.info("Alphabet stats: #form={0} (w/ nil & unk & root), #pos={1} (w/ nil & unk & root),"
+             " #deprel={2} (w/ nil & unk)".format(len(form_alphabet), len(pos_alphabet), len(deprel_alphabet)))
 
     instance_builder = InstanceBuilder(form_alphabet, pos_alphabet, deprel_alphabet)
     train_dataset = instance_builder.conllx_to_instances(raw_train, add_pseudo_root=True)
@@ -84,12 +86,6 @@ def main():
     best_uas = 0.
     forms, postags, deprels, Ys = [], [], [], []
     for n, train_data in enumerate(train_dataset):
-        if not is_tree(train_data):
-            logging.info('{0} sentence is not tree, skipped.'.format(n))
-            continue
-        if not is_projective(train_data):
-            logging.info('{0} sentence is not projective, skipped.'.format(n))
-            continue
         xs, ys = parser.generate_training_instance(train_data)
         forms.append(xs[0])
         postags.append(xs[1])

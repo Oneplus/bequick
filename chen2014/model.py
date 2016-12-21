@@ -53,7 +53,6 @@ class Network(object):
         self.form = tf.placeholder(tf.int32, shape=(None, len(Parser.FORM_NAMES), ), name="form_i")
         self.pos = tf.placeholder(tf.int32, shape=(None, len(Parser.POS_NAMES), ), name="pos_i")
         self.deprel = tf.placeholder(tf.int32, shape=(None, len(Parser.DEPREL_NAMES), ), name="deprel_i")
-        self.output = tf.placeholder(tf.int32, shape=(None, ), name="y_o")
 
 
 class Classifier(Network):
@@ -61,6 +60,7 @@ class Classifier(Network):
                  dropout, l2):
         super(Classifier, self).__init__(form_size, form_dim, pos_size, pos_dim, deprel_size, deprel_dim, hidden_dim,
                                          output_dim, dropout, l2)
+        self.output = tf.placeholder(tf.int32, shape=(None, ), name="y_o")
 
         # EMBEDDING in CPU
         with tf.device("/cpu:0"), tf.name_scope("embedding"):
@@ -174,7 +174,8 @@ class DeepQNetwork(Network):
         regularizer = tf.nn.l2_loss(self.W0) + tf.nn.l2_loss(self.b0) + tf.nn.l2_loss(self.W1) + tf.nn.l2_loss(self.b1)
 
         self.loss = tf.reduce_mean(tf.square(predicted_q - self.output)) + l2 * regularizer
-        self.optimization = tf.train.RMSPropOptimizer(learning_rate=0.00025, momentum=0.95).minimize(self.loss)
+        # self.optimization = tf.train.RMSPropOptimizer(learning_rate=0.00025, momentum=0.95).minimize(self.loss)
+        self.optimization = tf.train.AdamOptimizer().minimize(self.loss)
 
     def train(self, session, inputs, action, outputs):
         form, pos, deprel = inputs

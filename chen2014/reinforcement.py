@@ -13,15 +13,17 @@ except ImportError:
 from bequick.corpus import read_conllx_dataset, get_alphabet
 from bequick.embedding import load_embedding
 try:
-    from .tb_parser import Parser, State
+    from .tb_parser import TransitionSystem, Parser, State
     from .model import DeepQNetwork, initialize_word_embeddings
     from .tree_utils import is_projective, is_tree
     from .evaluate import evaluate
+    from .instance_builder import InstanceBuilder
 except (ValueError, SystemError) as e:
-    from tb_parser import Parser, State
+    from tb_parser import TransitionSystem, Parser, State
     from model import DeepQNetwork, initialize_word_embeddings
     from tree_utils import is_projective, is_tree
     from evaluate import evaluate
+    from instance_builder import InstanceBuilder
 
 np.random.seed(1234)
 logging.basicConfig(level=logging.INFO, format='%(asctime)-15s %(levelname)s: %(message)s')
@@ -84,16 +86,20 @@ def find_best(parser, state, scores):
 
 
 def get_valid_actions(parser, state):
-    n_actions = parser.num_actions()
-    aids, names = [], []
+    """
+
+    :param parser: Parser
+    :param state: State
+    :return: tuple
+    """
+    n_actions = parser.system.num_actions()
+    aids = []
     mask = np.zeros(n_actions, dtype=np.bool)
     for aid in range(n_actions):
-        name = parser.get_action(aid)
-        if state.valid(name):
+        if parser.system.valid(state, aid):
             aids.append(aid)
-            names.append(name)
             mask[aid] = True
-    return aids, names, mask
+    return aids, mask
 
 
 def main():
@@ -123,28 +129,34 @@ def main():
     cmd.add_argument("--language", dest="lang", default="en", help="the language")
     opts = cmd.parse_args()
 
-    train_dataset = read_conllx_dataset(opts.reference)
-    LOG.info("Loaded {0} training sentences.".format(len(train_dataset)))
+    raw_train = read_conllx_dataset(opts.reference)
+    raw_devel = read_conllx_dataset(opts.development)
+    raw_test = read_conllx_dataset(opts.test)
+    LOG.info("Dataset stats: #train={0}, #devel={1}, #test={2}.".format(len(raw_train), len(raw_devel), len(raw_test)))
+
+    form_alphabet = get_alphabet(raw_train, 'form')
+    pos_alphabet = get_alphabet(raw_train, 'pos')
+    deprel_alphabet = get_alphabet(raw_train, 'deprel')
+    form_alphabet['_ROOT_'] = len(form_alphabet)
+    pos_alphabet['_ROOT_'] = len(pos_alphabet)
+    LOG.info("Alphabet stats: #form={0} (w/ nil & unk), #pos={1} (w/ nil & unk), #deprel={2} (w/ nil & unk)".format(
+        len(form_alphabet), len(pos_alphabet), len(deprel_alphabet)))
+
+    instance_builder = InstanceBuilder(form_alphabet, pos_alphabet, deprel_alphabet)
+    train_dataset = instance_builder.conllx_to_instances(raw_train, add_pseudo_root=True)
+    devel_dataset = instance_builder.conllx_to_instances(raw_devel, add_pseudo_root=True)
+    test_dataset = instance_builder.conllx_to_instances(raw_test, add_pseudo_root=True)
+    devel_feats = [[None] + [token['feat'] for token in data] for data in raw_devel]
+    test_feats = [[None] + [token['feat'] for token in data] for data in raw_test]
+    LOG.info("Dataset converted from string to index.")
     train_dataset = [data for data in train_dataset if is_tree(data) and is_projective(data)]
-    LOG.info("{0} training sentences after filter non-tree and non-projective.".format(len(train_dataset)))
-    devel_dataset = read_conllx_dataset(opts.development)
-    LOG.info("Loaded {0} development sentences.".format(len(devel_dataset)))
-    test_dataset = read_conllx_dataset(opts.test)
-    LOG.info("Loaded {0} test sentences.".format(len(test_dataset)))
+    LOG.info("{0} training sentences after filtering non-tree and non-projective.".format(len(train_dataset)))
 
-    form_alphabet = get_alphabet(train_dataset, 'form')
-    LOG.info("# {0} forms in alphabet".format(len(form_alphabet)))
-    pos_alphabet = get_alphabet(train_dataset, 'pos')
-    LOG.info("# {0} postags in alphabet".format(len(pos_alphabet)))
-    deprel_alphabet = get_alphabet(train_dataset, 'deprel')
-    LOG.info("# {0} deprel in alphabet".format(len(deprel_alphabet)))
-
-    parser = Parser(form_alphabet, pos_alphabet, deprel_alphabet)
-    LOG.info("# {0} actions".format(parser.num_actions()))
-
+    system = TransitionSystem(deprel_alphabet)
+    parser = Parser(system)
     model = DeepQNetwork(form_size=len(form_alphabet), form_dim=100, pos_size=len(pos_alphabet), pos_dim=20,
                          deprel_size=len(deprel_alphabet), deprel_dim=20, hidden_dim=opts.hidden_size,
-                         output_dim=parser.num_actions(), dropout=opts.dropout, l2=opts.lamb)
+                         output_dim=system.num_actions(), dropout=opts.dropout, l2=opts.lamb)
     indices, matrix = load_embedding(opts.embedding, form_alphabet, opts.embedding_size)
 
     if platform.system() == 'Windows':
@@ -155,7 +167,7 @@ def main():
     initialize_word_embeddings(session, model.form_emb, indices, matrix)
     logging.info('Embedding is loaded.')
 
-    memory = Memory(parser.n_actions, opts.memory_size, opts.batch_size)
+    memory = Memory(system.num_actions(), opts.memory_size, opts.batch_size)
     # starting from a random policy
     np.random.shuffle(train_dataset)
     n = 0
@@ -164,30 +176,25 @@ def main():
         n += 1
         if n == len(train_dataset):
             n = 0
-        d = [parser.ROOT] + data
-        s = State(d)
-        valid_ids, valid_names, _ = get_valid_actions(parser, s)
+        s = State(data)
+        valid_ids, _ = get_valid_actions(parser, s)
         while not s.terminate():
-            x = parser.parameterize_x(parser.extract_features(s))
-            i = np.random.randint(len(valid_names))
-            chosen_id, chosen_name = valid_ids[i], valid_names[i]
-            r = s.scored_transit(chosen_name)
-            next_x = parser.parameterize_x(parser.extract_features(s))
-            valid_ids, valid_names, valid_mask = get_valid_actions(parser, s)
+            x = parser.parameterize_x(s)
+            chosen_id = np.random.choice(valid_ids)
+            r = system.scored_transit(s, chosen_id)
+            next_x = parser.parameterize_x(s)
+            valid_ids, valid_mask = get_valid_actions(parser, s)
             memory.add(x[0], x[1], x[2], chosen_id, r, next_x[0], next_x[1], next_x[2], valid_mask, s.terminate())
     LOG.info("Finish random initialization process, memory size {0}".format(memory.volume()))
 
     # Learning DQN
     n, n_batch, iteration = 0, 0, 0
-    best_uas, test_uas = 0., 0.
+    best_uas, test_uas, test_las = 0., 0., 0.
 
     eps = opts.eps_init
     eps_decay_rate = (opts.eps_init - opts.eps_final) / opts.eps_decay_steps
     LOG.info('eps decay from {0} to {1} by {2} steps'.format(opts.eps_init, opts.eps_final, opts.eps_decay_steps))
     cost = 0.
-    # model.update_target(session)
-    # LOG.info("target network is synchronized at {0}.".format(n_batch))
-
     while iteration <= opts.max_iter:
         if n == 0:
             cost = 0
@@ -195,24 +202,21 @@ def main():
             np.random.shuffle(train_dataset)
         data = train_dataset[n]
 
-        d = [parser.ROOT] + data
-        s = State(d)
-        valid_ids, valid_names, valid_mask = get_valid_actions(parser, s)
+        s = State(data)
+        valid_ids, valid_mask = get_valid_actions(parser, s)
         while not s.terminate():
             # eps-greedy, rollout policy
             p = np.random.rand()
-            x = parser.parameterize_x(parser.extract_features(s))
+            x = parser.parameterize_x(s)
             if p > eps:
                 prediction = model.target_policy(session, x)[0]
                 prediction[~valid_mask] = np.NINF
                 chosen_id = np.argmax(prediction).item()
-                chosen_name = parser.get_action(chosen_id)
             else:
-                i = np.random.randint(len(valid_names))
-                chosen_name, chosen_id = valid_names[i], valid_ids[i]
-            r = s.scored_transit(chosen_name)
-            next_x = parser.parameterize_x(parser.extract_features(s))
-            valid_ids, valid_names, valid_mask = get_valid_actions(parser, s)
+                chosen_id = np.random.choice(valid_ids)
+            r = system.scored_transit(s, chosen_id)
+            next_x = parser.parameterize_x(s)
+            valid_ids, valid_mask = get_valid_actions(parser, s)
             memory.add(x[0], x[1], x[2], chosen_id, r, next_x[0], next_x[1], next_x[2], valid_mask, s.terminate())
 
             payload = memory.sample()
@@ -239,18 +243,19 @@ def main():
         # MOVE to the next sentence.
         n += 1
         if (opts.evaluate_stops > 0 and n % opts.evaluate_stops == 0) or n == len(train_dataset):
-            uas = evaluate(devel_dataset, session, parser, model, True, opts.lang)
+            uas, las = evaluate(devel_dataset, session, parser, model, devel_feats, True, opts.lang)
             if n == len(train_dataset):
-                LOG.info('Iteration {0} done, eps={1}, Cost={2}, UAS={3}'.format(iteration, eps, cost, uas))
+                LOG.info('Iteration {0} done, eps={1}, Cost={2}, UAS={3}, LAS={4}'.format(iteration, eps, cost,
+                                                                                          uas, las))
                 iteration += 1
                 n = 0
             else:
                 LOG.info('At {0}, eps={1} UAS={2}'.format(n_batch, eps, uas))
             if uas > best_uas:
                 best_uas = uas
-                test_uas = evaluate(test_dataset, session, parser, model, True, opts.lang)
-                LOG.info('New best achieved: {0}, test: {1}'.format(best_uas, test_uas))
-    LOG.info('Finish training, best devel uas is {0}, test uas is {1}'.format(best_uas, test_uas))
+                test_uas, test_las = evaluate(test_dataset, session, parser, model, test_feats, True, opts.lang)
+                LOG.info('New best achieved: {0}, test: UAS={1}, LAS={2}'.format(best_uas, test_uas, test_las))
+    LOG.info('Finish training, best devel UAS={0}, test UAS={1}, LAS={2}'.format(best_uas, test_uas, test_las))
 
 if __name__ == "__main__":
     main()

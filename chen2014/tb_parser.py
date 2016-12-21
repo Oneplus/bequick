@@ -1,21 +1,33 @@
 #!/usr/bin/env python
+from __future__ import division
 import copy
 import numpy as np
+try:
+    from .instance_builder import InstanceBuilder as IB
+except (ValueError, SystemError) as e:
+    from instance_builder import InstanceBuilder as IB
 
 
 class State(object):
+    HED, DEPREL, L0, L1, R0, R1 = 0, 1, 2, 3, 4, 5
+    ILL = 65535
+
     def __init__(self, data):
         self.n = len(data)
         self.data = data
-        self.stack = [0]
+        self.stack = [0]    # SHIFT in the pseudo ROOT
         self.buffer = range(1, len(data))
-        self.result = [{} for _ in range(len(data))]
+        self.result = np.zeros((self.n, 6), dtype=np.int32)
+        self.result[:, 0] = self.ILL
 
     def __str__(self):
         stack_str = str(self.stack)
         buffer_str = "[{0} .. {1}]".format(self.buffer[0], self.buffer[-1]) if len(self.buffer) > 0 else "[]"
-        result_str = ", ".join(["{0}: {1}".format(i, res) for i, res in enumerate(self.result) if len(res) > 0])
+        result_str = ", ".join(["{0}: {1}".format(i, res) for i, res in enumerate(self.result) if res[0] < self.ILL])
         return "stack: {0}\nbuffer: {1}\nresult: {2}".format(stack_str, buffer_str, result_str)
+
+    def max_steps(self):
+        return 2 * self.n - 2
 
     def shift(self):
         self.stack.append(self.buffer[0])
@@ -28,15 +40,15 @@ class State(object):
         self.stack.append(hed)
         _mod = self.result[mod]
         _hed = self.result[hed]
-        _mod['head'] = hed
-        _mod['deprel'] = deprel
-        if 'L0' not in _hed:
-            _hed['L0'] = mod
-        elif mod < _hed['L0']:
-            _hed['L1'] = _hed['L0']
-            _hed['L0'] = mod
-        else:
-            _hed['L1'] = mod
+        _mod[self.HED] = hed
+        _mod[self.DEPREL] = deprel
+        if _hed[self.L0] == self.ILL:
+            _hed[self.L0] = mod
+        elif mod < _hed[self.L0]:
+            _hed[self.L1] = _hed[self.L0]
+            _hed[self.L0] = mod
+        elif mod < _hed[self.L1]:
+            _hed[self.L1] = mod
 
     def right(self, deprel):
         mod = self.stack[-1]
@@ -45,86 +57,18 @@ class State(object):
         self.stack.append(hed)
         _mod = self.result[mod]
         _hed = self.result[hed]
-        _mod['head'] = hed
-        _mod['deprel'] = deprel
-        if 'R0' not in _hed:
-            _hed['R0'] = mod
-        elif mod > _hed['R0']:
-            _hed['R1'] = _hed['R0']
-            _hed['R0'] = mod
-        else:
-            _hed['R1'] = mod
+        _mod[self.HED] = hed
+        _mod[self.DEPREL] = deprel
+        if _hed[self.R0] == self.ILL:
+            _hed[self.R0] = mod
+        elif mod > _hed[self.R0]:
+            _hed[self.R1] = _hed[self.R0]
+            _hed[self.R0] = mod
+        elif mod > _hed[self.R1]:
+            _hed[self.R1] = mod
 
     def terminate(self):
         return len(self.stack) == 1 and len(self.buffer) == 0
-
-    def oracle_action(self, data):
-        top0 = self.stack[-1] if len(self.stack) > 0 else -1
-        top1 = self.stack[-2] if len(self.stack) > 1 else -2
-        all_descendants_reduced = True
-        if top0 >= 0:
-            for d in data:
-                if d['head'] == top0 and ('head' not in self.result[d['id']] or self.result[d['id']]['head'] != top0):
-                    all_descendants_reduced = False
-                    break
-
-        if top1 >= 0 and data[top1]['head'] == top0:
-            return 'LA-{0}'.format(data[top1]['deprel'])
-        elif top1 >= 0 and data[top0]['head'] == top1 and all_descendants_reduced:
-            return 'RA-{0}'.format(data[top0]['deprel'])
-        elif len(self.buffer) > 0:
-            return 'SH'
-
-    def transit(self, action):
-        if action.startswith('LA'):
-            self.left(action.split('-')[1])
-        elif action.startswith('RA'):
-            self.right(action.split('-')[1])
-        else:
-            self.shift()
-
-    def scored_transit(self, action):
-        if action.startswith('LA-'):
-            deprel = action.split('-')[1]
-            hed = self.stack[-1]
-            mod = self.stack[-2]
-            item = self.data[mod]
-            score = (1. if item['head'] == hed and item['deprel'] == deprel else -1.)
-            self.left(action.split('-')[1])
-        elif action.startswith('RA'):
-            deprel = action.split('-')[1]
-            hed = self.stack[-2]
-            mod = self.stack[-1]
-            item = self.data[mod]
-            score = (1. if item['head'] == hed and item['deprel'] == deprel else -1.)
-            self.right(action.split('-')[1])
-        else:
-            self.shift()
-            score = 0.
-        return score
-
-    def valid(self, action):
-        if action.startswith('LA'):
-            is_root = action.split('-')[1] in ('root', 'ROOT', 'HED')
-            if len(self.stack) < 2:
-                return False
-            if self.stack[-2] == 0:  # root not reduced
-                return False
-            if is_root:  # left root not allowed
-                return False
-        elif action.startswith('RA'):
-            is_root = action.split('-')[1] in ('root', 'ROOT', 'HED')
-            if len(self.stack) < 2:
-                return False
-            if self.stack[-2] == 0:
-                if not is_root or len(self.buffer) > 0:
-                    return False
-            elif is_root:
-                return False
-        else:
-            if len(self.buffer) < 1:
-                return False
-        return True
 
     def copy(self):
         new_state = State(self.data)
@@ -134,16 +78,9 @@ class State(object):
         return new_state
 
 
-class Parser(object):
-    ROOT = {'id': 0, 'form': '_ROOT_', 'pos': '_ROOT_', 'head': None, 'deprel': None}
-
-    def __init__(self, form_alpha, pos_alpha, deprel_alpha):
-        self.form_alpha = form_alpha
-        self.pos_alpha = pos_alpha
+class TransitionSystem(object):
+    def __init__(self, deprel_alpha):
         self.deprel_alpha = deprel_alpha
-        self.pos_cache = {}
-        for k, v in pos_alpha.items():
-            self.pos_cache[v] = k
         self.deprel_cache = {}
         self.actions = ['SH']
         self.actions_cache = {'SH': 0}
@@ -158,103 +95,157 @@ class Parser(object):
                 self.actions.append(name)
         self.n_actions = len(self.deprel_alpha) * 2 - 3
 
-    def generate_training_instance(self, data):
-        d = [self.ROOT] + data
-        s = State(d)
-        instances, oracle_actions = [], []
-        while not s.terminate():
-            action = s.oracle_action(d)
-            oracle_actions.append(action)
-            instances.append(self.extract_features(s))
-            s.transit(action)
-        return self.parameterize_xs(instances), self.parameterize_ys(oracle_actions)
+    @classmethod
+    def _is_int_shift(cls, a):
+        return a == 0
 
-    @staticmethod
-    def copy_interested_result(ctx, name, src_result, tgt_result):
-        i = ctx[name]
-        if i is not None:
-            tgt_result[i] = {'head': src_result[i]['head'], 'deprel': src_result[i]['deprel']}
+    @classmethod
+    def _is_str_shift(cls, a):
+        return a == 'SH'
 
-    def extract_features(self, s):
-        ctx = {
-            'data': s.data,
-            'S0': (s.stack[-1] if len(s.stack) > 0 else None),
-            'S1': (s.stack[-2] if len(s.stack) > 1 else None),
-            'S2': (s.stack[-3] if len(s.stack) > 2 else None),
-            'N0': (s.buffer[0] if len(s.buffer) > 0 else None),
-            'N1': (s.buffer[1] if len(s.buffer) > 1 else None),
-            'N2': (s.buffer[2] if len(s.buffer) > 2 else None),
-        }
-        S0 = ctx['S0']
-        ctx['S0L0'] = None if S0 is None else (None if 'L0' not in s.result[S0] else s.result[S0]['L0'])
-        ctx['S0L1'] = None if S0 is None else (None if 'L1' not in s.result[S0] else s.result[S0]['L1'])
-        ctx['S0R0'] = None if S0 is None else (None if 'R0' not in s.result[S0] else s.result[S0]['R0'])
-        ctx['S0R1'] = None if S0 is None else (None if 'R1' not in s.result[S0] else s.result[S0]['R1'])
-        ctx['S0LL'] = None if not ctx['S0L0'] else (None if 'L0' not in s.result[ctx['S0L0']] else s.result[ctx['S0L0']]['L0'])
-        ctx['S0RR'] = None if not ctx['S0R0'] else (None if 'R0' not in s.result[ctx['S0R0']] else s.result[ctx['S0R0']]['R0'])
-        S1 = ctx['S1']
-        ctx['S1L0'] = None if S1 is None else (None if 'L0' not in s.result[S1] else s.result[S1]['L0'])
-        ctx['S1L1'] = None if S1 is None else (None if 'L1' not in s.result[S1] else s.result[S1]['L1'])
-        ctx['S1R0'] = None if S1 is None else (None if 'R0' not in s.result[S1] else s.result[S1]['R0'])
-        ctx['S1R1'] = None if S1 is None else (None if 'R1' not in s.result[S1] else s.result[S1]['R1'])
-        ctx['S1LL'] = None if not ctx['S1L0'] else (None if 'L0' not in s.result[ctx['S1L0']] else s.result[ctx['S1L0']]['L0'])
-        ctx['S1RR'] = None if not ctx['S1R0'] else (None if 'R0' not in s.result[ctx['S1R0']] else s.result[ctx['S1R0']]['R0'])
+    @classmethod
+    def _is_int_left(cls, a):
+        return a > 0 and a % 2 == 1
 
-        interested_result = ctx['interested_result'] = {}
-        for name in self._2ND_ORDER:
-            Parser.copy_interested_result(ctx, name, s.result, interested_result)
-        return ctx
+    @classmethod
+    def _is_str_left(cls, a):
+        return a.startswith('LA-')
 
-    def get_oracle_actions(self, data):
-        ret = []
-        d = [self.ROOT] + data
-        s = State(d)
-        while not s.terminate():
-            action = s.oracle_action(d)
-            ret.append(action)
-            s.transit(action)
-        return ret
+    @classmethod
+    def _is_int_right(cls, a):
+        return a > 0 and a % 2 == 0
 
-    _1ST_ORDER = ['S0', 'S1', 'S2', 'N0', 'N1', 'N2']
-    _2ND_ORDER = ['S0L0', 'S0L1', 'S0R0', 'S0R1', 'S1L0', 'S1L1', 'S1R0', 'S1R1', 'S0LL', 'S0RR', 'S1LL', 'S1RR']
+    @classmethod
+    def _is_str_right(cls, a):
+        return a.startswith('RA-')
 
-    FORM_NAMES = _1ST_ORDER + _2ND_ORDER
-    POS_NAMES = _1ST_ORDER + _2ND_ORDER
-    DEPREL_NAMES = _2ND_ORDER
+    @classmethod
+    def _parse_label(cls, a, offset):
+        return (a - 1) // 2 + 2 if offset else (a - 1) // 2
 
-    def parameterize_x(self, ctx):
-        data, result = ctx['data'], ctx['interested_result']
-        form = np.zeros((1, len(self.FORM_NAMES)), dtype=np.int32)
-        tag = np.zeros((1, len(self.POS_NAMES)), dtype=np.int32)
-        deprel = np.zeros((1, len(self.DEPREL_NAMES)), dtype=np.int32)
-        for i, name in enumerate(self.FORM_NAMES):
-            if ctx[name]:
-                form[0, i] = self.form_alpha.get(data[ctx[name]]['form'], 1)
-        for i, name in enumerate(self.POS_NAMES):
-            if ctx[name]:
-                tag[0, i] = self.pos_alpha.get(data[ctx[name]]['pos'])
-        for i, name in enumerate(self.DEPREL_NAMES):
-            if ctx[name]:
-                deprel[0, i] = self.deprel_alpha.get(result[ctx[name]]['deprel'])
-        return form, tag, deprel
+    @classmethod
+    def _make_int_shift(cls, a=None):
+        return 0
 
-    def parameterize_xs(self, instances):
-        n_instances = len(instances)
-        forms = np.zeros((n_instances, len(self.FORM_NAMES)), dtype=np.int32)
-        tags = np.zeros((n_instances, len(self.POS_NAMES)), dtype=np.int32)
-        deprels = np.zeros((n_instances, len(self.DEPREL_NAMES)), dtype=np.int32)
-        for i, ctx in enumerate(instances):
-            payload = self.parameterize_x(ctx)
-            forms[i] = payload[0]
-            tags[i] = payload[1]
-            deprels[i] = payload[2]
-        return forms, tags, deprels
+    @classmethod
+    def _make_str_shift(cls, a=None):
+        return 'SH'
 
-    def parameterize_y(self, action):
-        return self._get_int_action(action)
+    @classmethod
+    def _make_int_left(cls, d):
+        return 1 + 2 * d
 
-    def parameterize_ys(self, actions):
-        return np.array([self._get_int_action(action) for action in actions], dtype=np.int32)
+    def _make_str_left(self, a):
+        """
+
+        :param a: int
+        :return:
+        """
+        return 'LA-{0}'.format(self.deprel_cache[a])
+
+    @classmethod
+    def _make_int_right(cls, d):
+        return 2 + 2 * d
+
+    def _make_str_right(self, a):
+        """
+
+        :param a: int
+        :return:
+        """
+        return 'RA-{0}'.format(self.deprel_cache[a])
+
+    @classmethod
+    def transit(cls, state, action):
+        """
+
+        :param state: State
+        :param action: int
+        :return:
+        """
+        if cls._is_int_left(action):
+            state.left(cls._parse_label(action, True))
+        elif cls._is_int_right(action):
+            state.right(cls._parse_label(action, True))
+        else:
+            state.shift()
+
+    @classmethod
+    def scored_transit(cls, state, action):
+        if cls._is_int_left(action):
+            deprel = cls._parse_label(action, True)
+            hed = state.stack[-1]
+            mod = state.stack[-2]
+            item = state.data[mod]
+            score = (1. if item[IB.HED] == hed and item[IB.DEPREL] == deprel else -1.)
+            state.left(deprel)
+        elif cls._is_int_right(action):
+            deprel = cls._parse_label(action, True)
+            hed = state.stack[-2]
+            mod = state.stack[-1]
+            item = state.data[mod]
+            score = (1. if item[IB.HED] == hed and item[IB.DEPREL] == deprel else -1.)
+            state.right(deprel)
+        else:
+            state.shift()
+            score = 0.
+        return score
+
+    def valid(self, state, action):
+        """
+
+        :param state: State
+        :param action: int, action index
+        :return:
+        """
+        if self._is_int_left(action):
+            deprel = self._parse_label(action, True)
+            is_root = self.deprel_cache[deprel] in ('root', 'ROOT', 'HED')
+            if len(state.stack) < 2:
+                return False
+            if state.stack[-2] == 0:  # root not reduced
+                return False
+            if is_root:  # left root not allowed
+                return False
+        elif self._is_int_right(action):
+            deprel = self._parse_label(action, True)
+            is_root = self.deprel_cache[deprel] in ('root', 'ROOT', 'HED')
+            if len(state.stack) < 2:
+                return False
+            if state.stack[-2] == 0:
+                if not is_root or len(state.buffer) > 0:
+                    return False
+            elif is_root:
+                return False
+        else:
+            if len(state.buffer) < 1:
+                return False
+        return True
+
+    @classmethod
+    def oracle_action(cls, s, data):
+        """
+
+        :param s: State
+        :param data: list
+        :return int:
+        """
+        top0 = s.stack[-1] if len(s.stack) > 0 else -1
+        top1 = s.stack[-2] if len(s.stack) > 1 else -2
+        all_descendants_reduced = True
+        if top0 >= 0:
+            for d in data:
+                if d[IB.HED] == top0 and \
+                        (s.result[d[IB.ID]][State.HED] == State.ILL or s.result[d[IB.ID]][State.HED] != top0):
+                    all_descendants_reduced = False
+                    break
+
+        if top1 >= 0 and data[top1][IB.HED] == top0:
+            return cls._make_int_left(data[top1][IB.DEPREL] - 2)
+        elif top1 >= 0 and data[top0][IB.HED] == top1 and all_descendants_reduced:
+            return cls._make_int_right(data[top0][IB.DEPREL] - 2)
+        elif len(s.buffer) > 0:
+            return cls._make_int_shift()
 
     def num_actions(self):
         return self.n_actions
@@ -275,3 +266,107 @@ class Parser(object):
 
     def get_actions(self):
         return self.actions
+
+
+class Parser(object):
+    S0, S1, S2, N0, N1, N2 = 0, 1, 2, 3, 4, 5
+    S0L0, S0L1, S0R0, S0R1, S1L0, S1L1, S1R0, S1R1, S0LL, S0RR, S1LL, S1RR = 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17
+    _1ST_ORDER = [S0, S1, S2, N0, N1, N2]
+    _2ND_ORDER = [S0L0, S0L1, S0R0, S0R1, S1L0, S1L1, S1R0, S1R1, S0LL, S0RR, S1LL, S1RR]
+
+    FORM_NAMES = _1ST_ORDER + _2ND_ORDER
+    POS_NAMES = _1ST_ORDER + _2ND_ORDER
+    DEPREL_NAMES = _2ND_ORDER
+
+    def __init__(self, system):
+        """
+
+        :param system: TransitionSystem
+        """
+        self.system = system
+
+    def generate_training_instance(self, data):
+        """
+
+        :param data: list
+        :return: tuple
+        """
+        s = State(data)
+        n = s.max_steps()
+        form = np.zeros((n, len(self.FORM_NAMES)), dtype=np.int32)
+        pos = np.zeros((n, len(self.POS_NAMES)), dtype=np.int32)
+        deprel = np.zeros((n, len(self.DEPREL_NAMES)), dtype=np.int32)
+        oracle_actions = np.zeros(n, dtype=np.int32)
+        step = 0
+        while not s.terminate():
+            action = oracle_actions[step] = TransitionSystem.oracle_action(s, data)
+            form[step], pos[step], deprel[step] = self.parameterize_x(s)
+            TransitionSystem.transit(s, action)
+            step += 1
+        return (form, pos, deprel), oracle_actions
+
+    def _extract_features(self, s):
+        """
+
+        :param s: State
+        :return ctx: array-like
+        """
+        ctx = np.full((18, ), State.ILL, dtype=np.int32)
+        if len(s.stack) > 0:
+            S0 = ctx[self.S0] = s.stack[-1]
+            if s.result[S0][State.L0] != State.ILL:
+                S0L0 = ctx[self.S0L0] = s.result[S0][State.L0]
+                if s.result[S0L0][State.L0] != State.ILL:
+                    ctx[self.S0LL] = s.result[S0L0][State.L0]
+            if s.result[S0][State.L1] != State.ILL:
+                ctx[self.S0L1] = s.result[S0][State.L1]
+            if s.result[S0][State.R0] != State.ILL:
+                S0R0 = ctx[self.S0R0] = s.result[S0][State.R0]
+                if s.result[S0R0][State.R0] != State.ILL:
+                    ctx[self.S0RR] = s.result[S0R0][State.R0]
+            if s.result[S0][State.R1] != State.ILL:
+                ctx[self.S0R1] = s.result[S0][State.R1]
+        if len(s.stack) > 1:
+            S1 = ctx[self.S1] = s.stack[-2]
+            if s.result[S1][State.L0] != State.ILL:
+                S1L0 = ctx[self.S1L0] = s.result[S1][State.L0]
+                if s.result[S1L0][State.L0] != State.ILL:
+                    ctx[self.S1LL] = s.result[S1L0][State.L0]
+            if s.result[S1][State.L1] != State.ILL:
+                ctx[self.S1L1] = s.result[S1][State.L1]
+            if s.result[S1][State.R0] != State.ILL:
+                S1R0 = ctx[self.S1R0] = s.result[S1][State.R0]
+                if s.result[S1R0][State.R0] != State.ILL:
+                    ctx[self.S1RR] = s.result[S1R0][State.R0]
+            if s.result[S1][State.R1] != State.ILL:
+                ctx[self.S1R1] = s.result[S1][State.R1]
+        if len(s.stack) > 2:
+            ctx[self.S2] = s.stack[-3]
+        if len(s.buffer) > 0:
+            ctx[self.N0] = s.buffer[0]
+        if len(s.buffer) > 1:
+            ctx[self.N1] = s.buffer[1]
+        if len(s.buffer) > 2:
+            ctx[self.N2] = s.buffer[2]
+        return ctx
+
+    def parameterize_x(self, s):
+        """
+
+        :param s: State
+        :return: tuple
+        """
+        ctx, data, result = self._extract_features(s), s.data, s.result
+        form = np.zeros((1, len(self.FORM_NAMES)), dtype=np.int32)
+        tag = np.zeros((1, len(self.POS_NAMES)), dtype=np.int32)
+        deprel = np.zeros((1, len(self.DEPREL_NAMES)), dtype=np.int32)
+        for i, name in enumerate(self.FORM_NAMES):
+            if ctx[name] != State.ILL:
+                form[0, i] = data[ctx[name]][IB.FROM]
+        for i, name in enumerate(self.POS_NAMES):
+            if ctx[name] != State.ILL:
+                tag[0, i] = data[ctx[name]][IB.POS]
+        for i, name in enumerate(self.DEPREL_NAMES):
+            if ctx[name] != State.ILL:
+                deprel[0, i] = result[ctx[name]][State.DEPREL]
+        return form, tag, deprel

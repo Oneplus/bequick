@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+from __future__ import unicode_literals
+import re
 try:
     from .io_utils import zip_open
 except (ValueError, SystemError) as e:
@@ -31,7 +33,7 @@ def read_conllx_dataset(filename, max_length=None):
         if max_length is not None and len(lines) > max_length:
             continue
         for line in lines:
-            tokens = line.strip().split()
+            tokens = re.split("[\t ]", line.strip())
             data.append({
                 'id': int(tokens[0]),
                 'form': tokens[1],
@@ -50,7 +52,7 @@ def get_alphabet(dataset, keyword, init_with_default_keys=True):
     :param dataset:
     :param keyword:
     :param init_with_default_keys: bool
-    :return:
+    :return ret: dict
     """
     if init_with_default_keys:
         ret = {None: 0, 'UNK': 1}

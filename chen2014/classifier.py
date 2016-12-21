@@ -12,15 +12,17 @@ except ImportError:
 from bequick.corpus import read_conllx_dataset, get_alphabet
 from bequick.embedding import load_embedding
 try:
-    from .tb_parser import Parser
+    from .tb_parser import TransitionSystem, Parser
     from .model import Classifier, initialize_word_embeddings
     from .tree_utils import is_projective, is_tree
     from .evaluate import evaluate
+    from .instance_builder import InstanceBuilder
 except (ValueError, SystemError) as e:
-    from tb_parser import Parser
+    from tb_parser import TransitionSystem, Parser
     from model import Classifier, initialize_word_embeddings
     from tree_utils import is_projective, is_tree
     from evaluate import evaluate
+    from instance_builder import InstanceBuilder
 
 np.random.seed(1234)
 logging.basicConfig(level=logging.INFO, format='%(asctime)-15s %(levelname)s: %(message)s')
@@ -46,24 +48,32 @@ def main():
     cmd.add_argument("--language", dest="lang", default="en", help="the language")
     opts = cmd.parse_args()
 
-    train_dataset = read_conllx_dataset(opts.reference)
-    LOG.info("Loaded {0} training sentences.".format(len(train_dataset)))
-    devel_dataset = read_conllx_dataset(opts.development)
-    LOG.info("Loaded {0} development sentences.".format(len(devel_dataset)))
-    test_dataset = read_conllx_dataset(opts.test)
-    LOG.info("Loaded {0} development sentences.".format(len(test_dataset)))
+    raw_train = read_conllx_dataset(opts.reference)
+    raw_devel = read_conllx_dataset(opts.development)
+    raw_test = read_conllx_dataset(opts.test)
+    LOG.info("Dataset stats: #train={0}, #devel={1}, #test={2}.".format(len(raw_train), len(raw_devel), len(raw_test)))
 
-    form_alphabet = get_alphabet(train_dataset, 'form')
-    LOG.info("# {0} forms in alphabet".format(len(form_alphabet)))
-    pos_alphabet = get_alphabet(train_dataset, 'pos')
-    LOG.info("# {0} postags in alphabet".format(len(pos_alphabet)))
-    deprel_alphabet = get_alphabet(train_dataset, 'deprel')
-    LOG.info("# {0} deprel in alphabet".format(len(deprel_alphabet)))
+    form_alphabet = get_alphabet(raw_train, 'form')
+    pos_alphabet = get_alphabet(raw_train, 'pos')
+    deprel_alphabet = get_alphabet(raw_train, 'deprel')
+    form_alphabet['_ROOT_'] = len(form_alphabet)
+    pos_alphabet['_ROOT_'] = len(pos_alphabet)
+    LOG.info("Alphabet stats: #form={0} (w/ nil & unk), #pos={1} (w/ nil & unk), #deprel={2} (w/ nil & unk)".format(
+        len(form_alphabet), len(pos_alphabet), len(deprel_alphabet)))
 
-    parser = Parser(form_alphabet, pos_alphabet, deprel_alphabet)
+    instance_builder = InstanceBuilder(form_alphabet, pos_alphabet, deprel_alphabet)
+    train_dataset = instance_builder.conllx_to_instances(raw_train, add_pseudo_root=True)
+    devel_dataset = instance_builder.conllx_to_instances(raw_devel, add_pseudo_root=True)
+    test_dataset = instance_builder.conllx_to_instances(raw_test, add_pseudo_root=True)
+    devel_feats = [[None] + [token['feat'] for token in data] for data in raw_devel]
+    test_feats = [[None] + [token['feat'] for token in data] for data in raw_test]
+    LOG.info("Dataset converted from string to index.")
+
+    system = TransitionSystem(deprel_alphabet)
+    parser = Parser(system)
     model = Classifier(form_size=len(form_alphabet), form_dim=100, pos_size=len(pos_alphabet), pos_dim=20,
                        deprel_size=len(deprel_alphabet), deprel_dim=20, hidden_dim=opts.hidden_size,
-                       output_dim=parser.num_actions(), dropout=opts.dropout, l2=opts.lamb)
+                       output_dim=system.num_actions(), dropout=opts.dropout, l2=opts.lamb)
     indices, matrix = load_embedding(opts.embedding, form_alphabet, opts.embedding_size)
 
     session = tf.Session()
@@ -91,6 +101,7 @@ def main():
     Ys = np.concatenate(Ys)
 
     n_batch, n_samples = 0, Ys.shape[0]
+    test_uas, test_las = None, None
     order = np.arange(n_samples)
     LOG.info('Training sample size: {0}'.format(n_samples))
     for i in range(1, opts.max_iter + 1):
@@ -103,19 +114,19 @@ def main():
             cost += model.train(session, xs, ys)
             n_batch += 1
             if opts.evaluate_stops > 0 and n_batch % opts.evaluate_stops == 0:
-                uas = evaluate(devel_dataset, session, parser, model, True, opts.lang)
-                LOG.info('At {0}, UAS={1}'.format((float(n_batch) / n_samples), uas))
+                uas, las = evaluate(devel_dataset, session, parser, model, devel_feats, True, opts.lang)
+                LOG.info('At {0}, UAS={1}, LAS={2}'.format((float(n_batch) / n_samples), uas, las))
                 if uas > best_uas:
-                    best_uas = uas
-                    uas = evaluate(test_dataset, session, parser, model, True, opts.lang)
-                    LOG.info('New best achieved: {0}, test: {1}'.format(best_uas, uas))
-        uas = evaluate(devel_dataset, session, parser, model, True, opts.lang)
-        LOG.info('Iteration {0} done, Cost={1}, UAS={2}'.format(i, cost, uas))
+                    best_uas, best_las = uas, las
+                    test_uas, test_las = evaluate(test_dataset, session, parser, model, test_feats, True, opts.lang)
+                    LOG.info('New best achieved: {0}, test: UAS={1}, LAS={2}'.format(best_uas, test_uas, test_las ))
+        uas, las = evaluate(devel_dataset, session, parser, model, devel_feats, True, opts.lang)
+        LOG.info('Iteration {0} done, Cost={1}, UAS={2}, LAS={3}'.format(i, cost, uas, las))
         if uas > best_uas:
-            best_uas = uas
-            uas = evaluate(test_dataset, session, parser, model, True, opts.lang)
-            LOG.info('New best achieved: {0}, test: {1}'.format(best_uas, uas))
-    LOG.info('Finish training, best UAS: {0}'.format(best_uas))
+            best_uas, best_las = uas, las
+            test_uas, test_las = evaluate(test_dataset, session, parser, model, test_feats, True, opts.lang)
+            LOG.info('New best achieved: {0}, test: UAS={1}, LAS={2}'.format(best_uas, test_uas, test_las))
+    LOG.info('Finish training, best devel UAS: {0}, test UAS={1}, LAS={2}'.format(best_uas, test_uas, test_las))
 
 if __name__ == "__main__":
     main()

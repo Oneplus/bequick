@@ -151,7 +151,6 @@ def main():
     devel_feats = [[None] + [token['feat'] for token in data] for data in raw_devel]
     test_feats = [[None] + [token['feat'] for token in data] for data in raw_test]
     LOG.info("Dataset converted from string to index.")
-    train_dataset = [data for data in train_dataset if is_tree(data) and is_projective(data)]
     LOG.info("{0} training sentences after filtering non-tree and non-projective.".format(len(train_dataset)))
 
     system = TransitionSystem(deprel_alphabet)

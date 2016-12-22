@@ -17,8 +17,7 @@ class State(object):
         self.data = data
         self.stack = [0]    # SHIFT in the pseudo ROOT
         self.buffer = range(1, len(data))
-        self.result = np.zeros((self.n, 6), dtype=np.int32)
-        self.result[:, 0] = self.ILL
+        self.result = np.full((self.n, 6), self.ILL, dtype=np.int32)
 
     def __str__(self):
         stack_str = str(self.stack)
@@ -64,18 +63,11 @@ class State(object):
         elif mod > _hed[self.R0]:
             _hed[self.R1] = _hed[self.R0]
             _hed[self.R0] = mod
-        elif mod > _hed[self.R1]:
+        elif _hed[self.R1] == self.ILL or mod > _hed[self.R1]:
             _hed[self.R1] = mod
 
     def terminate(self):
         return len(self.stack) == 1 and len(self.buffer) == 0
-
-    def copy(self):
-        new_state = State(self.data)
-        new_state.stack = copy.deepcopy(self.stack)
-        new_state.buffer = copy.deepcopy(self.buffer)
-        new_state.result = copy.deepcopy(self.result)
-        return new_state
 
 
 class TransitionSystem(object):

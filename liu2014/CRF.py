@@ -1,10 +1,6 @@
 #!/usr/bin/env python
-__author__ = "Liu, Yijia"
-__email__ = "oneplus.lau@gmail.com"
-
 import math
 import sys
-
 from optparse import OptionParser
 from scipy.misc import logsumexp
 from numpy import array, zeros, exp, add, subtract, sum, newaxis
@@ -41,7 +37,7 @@ def read_instance(context):
     instance.items = items = []
     for line in context.split("\n"):
         tokens = line.split()
-        items.append( (tokens[1:], tokens[0].split("|")) )
+        items.append((tokens[1:], tokens[0].split("|")))
     return instance
 
 

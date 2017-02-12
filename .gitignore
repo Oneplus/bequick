@@ -57,3 +57,9 @@ target/
 *.bz2
 data/
 sample/
+.idea/
+bordes2013/wordnet-mlj12.tar/
+bowman2015/bowman2015/
+dyer2015/
+bequick.data/
+/conll2000/logres.model

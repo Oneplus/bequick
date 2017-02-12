@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 from __future__ import division
-import copy
 import numpy as np
 try:
     from .instance_builder import InstanceBuilder as IB

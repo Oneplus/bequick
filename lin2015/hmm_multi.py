@@ -42,6 +42,7 @@ def transform(dataset, form_alphabet, pos_alphabet):
 def main():
     flags = argparse.ArgumentParser()
     flags.add_argument("dataset", help="the path to the reference data.")
+    flags.add_argument("--max-iter", dest="max_iter", type=int, default=50, help="the number of max iteration.")
     opts = flags.parse_args()
 
     train_set = read_conllx_dataset(opts.dataset)
@@ -54,7 +55,7 @@ def main():
     X, Y, lengths = transform(train_set, form_alphabet, pos_alphabet)
     LOG.info('data transformed, {0} samples, {1} sequences.'.format(X.shape[0], lengths.shape[0]))
 
-    model = MultinomialHMM(n_components=n_pos, verbose=True)
+    model = MultinomialHMM(n_components=n_pos, verbose=True, n_iter=opts.max_iter)
     model.fit(X, lengths)
 
     Y_pred = model.predict(X, lengths)

@@ -15,12 +15,9 @@ except ImportError:
 from bequick.alphabet import Alphabet
 from bequick.tf_utils import random_uniform_matrix
 from bequick.embedding import load_embedding
-try:
-    from .corpus import load_json_data
-except (ValueError, SystemError) as e:
-    from corpus import load_json_data
-
+from bowman2015.corpus import load_json_data
 tf.set_random_seed(1234)
+np.random.seed(1234)
 logging.basicConfig(level=logging.INFO, format='%(asctime)-15s %(levelname)s: %(message)s')
 LOG = logging.getLogger('bowman2015')
 
@@ -51,7 +48,7 @@ class Model(object):
                 # inputs for the first sentence
                 inputs = tf.nn.embedding_lookup(self.form_emb, input_placeholder)
                 # shape(inputs) => (batch_size, max_steps, form_dim)
-                inputs = [tf.squeeze(input_, [1]) for input_ in tf.split(1, max_steps, inputs)]
+                inputs = [tf.squeeze(input_, [1]) for input_ in tf.split(inputs, max_steps, 1)]
                 # shape(input_) => (batch_size, 1, form_dim)
                 # after squeeze, shape(input_) => (batch_size, form_dim)
                 return inputs

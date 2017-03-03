@@ -15,7 +15,10 @@ except ImportError:
 from bequick.alphabet import Alphabet
 from bequick.tf_utils import random_uniform_matrix
 from bequick.embedding import load_embedding
-from bowman2015.corpus import load_json_data
+try:
+    from .corpus import load_json_data
+except (ValueError, SystemError) as e:
+    from corpus import load_json_data
 tf.set_random_seed(1234)
 np.random.seed(1234)
 logging.basicConfig(level=logging.INFO, format='%(asctime)-15s %(levelname)s: %(message)s')

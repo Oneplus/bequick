@@ -12,8 +12,12 @@ except ImportError:
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))
 from bequick.alphabet import Alphabet
 from bequick.embedding import load_embedding_and_build_alphabet
-from tang2015.corpus import read_and_transform_dataset
-from tang2015.model import FlattenAverage, FlattenBiLSTM
+try:
+    from .corpus import read_and_transform_dataset
+    from .model import FlattenBiLSTM, FlattenAverage
+except (ValueError, SystemError) as e:
+    from corpus import read_and_transform_dataset
+    from model import FlattenBiLSTM, FlattenAverage
 np.random.seed(1234)
 logging.basicConfig(level=logging.INFO, format='%(asctime)-15s %(levelname)s: %(message)s')
 LOG = logging.getLogger('tang2015')

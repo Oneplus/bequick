@@ -46,6 +46,12 @@ class FlattenModel(object):
                                                    biases_initializer=tf.constant_initializer(0.))
         return logits
 
+    def _session(self):
+        self.session = tf.Session()
+        gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.333)
+        self.session = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
+        self.session.run(tf.global_variables_initializer())
+
     def initialize_word_embeddings(self, indices, matrix):
         self.session.run(tf.scatter_update(self.emb, indices, matrix))
 
@@ -92,10 +98,7 @@ class FlattenAverage(FlattenModel):
         self.prediction = tf.nn.softmax(self.logits)
         self.loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits, labels=self.Y))
         self.optimization = self._optimizer_op(self.loss)
-
-        self.session = tf.Session()
-        self.session.run(tf.global_variables_initializer())
-
+        self._session()
 
 class FlattenBiGRU(FlattenModel):
     def __init__(self, algorithm, n_layers, form_size, form_dim, hidden_dim, output_dim, max_steps, batch_size=1):
@@ -123,10 +126,7 @@ class FlattenBiGRU(FlattenModel):
         self.prediction = tf.nn.softmax(self.logits)
         self.loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits, labels=self.Y))
         self.optimization = self._optimizer_op(self.loss)
-
-        self.session = tf.Session()
-        self.session.run(tf.global_variables_initializer())
-
+        self._session()
 
 class FlattenBiLSTM(FlattenModel):
     def __init__(self, algorithm, n_layers, form_size, form_dim, hidden_dim, output_dim, max_steps, batch_size=1):
@@ -154,6 +154,7 @@ class FlattenBiLSTM(FlattenModel):
         self.prediction = tf.nn.softmax(self.logits)
         self.loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits, labels=self.Y))
         self.optimization = self._optimizer_op(self.loss)
+        self._session()
 
 
 class DocumentTreeModel(object):

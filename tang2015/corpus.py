@@ -10,6 +10,7 @@ from bequick.io_utils import zip_open
 
 
 def read_and_transform_dataset(filename, alphabet, insert_new_token=False, add_unk_token=False):
+    assert alphabet.get('__BAD0__') == 0, "BAD0 should be inserted to dataset before load data."
     documents = []
     raw_document = []
 
@@ -17,6 +18,7 @@ def read_and_transform_dataset(filename, alphabet, insert_new_token=False, add_u
         line = line.strip()
         if len(line) == 0:
             document = []
+            length = []
             label = int(raw_document[0])
             for raw_sentence in raw_document[1:]:
                 raw_words = raw_sentence.split()
@@ -30,8 +32,37 @@ def read_and_transform_dataset(filename, alphabet, insert_new_token=False, add_u
                         elif add_unk_token:
                             sentence.append(alphabet.get("__UNK__"))
                 document.append(sentence)
-            documents.append((document, label))
+                length.append(len(sentence))
+            documents.append((document, length, label))
             raw_document = []
         else:
             raw_document.append(line)
     return documents
+
+
+def flatten_dataset(dataset, max_words):
+    n_doc = len(dataset)
+    X = np.zeros(shape=(n_doc, max_words), dtype=np.int32)
+    L = np.zeros(shape=n_doc, dtype=np.int32)
+    Y = np.zeros(shape=n_doc, dtype=np.int32)
+    for i, (document, length, label) in enumerate(dataset):
+        L[i] = sum(length)
+        offset = 0
+        for sentence in document:
+            X[i, offset: offset + len(sentence)] = np.array(sentence, dtype=np.int32)
+            offset += len(sentence)
+        Y[i] = label
+    return X, L, Y
+
+
+def treelike_dataset(dataset, max_sentences, max_words):
+    n_doc = len(dataset)
+    X = np.zeros(shape=(n_doc, max_sentences, max_words), dtype=np.int32)
+    L = np.zeros(shape=(n_doc, max_sentences), dtype=np.int32)
+    Y = np.zeros(shape=n_doc, dtype=np.int32)
+    for i, (document, length, label) in enumerate(dataset):
+        for j, sentence in enumerate(document):
+            L[i, j] = len(sentence)
+            X[i, j, : len(sentence)] = np.array(sentence, dtype=np.int32)
+        Y[i] = label
+    return X, L, Y

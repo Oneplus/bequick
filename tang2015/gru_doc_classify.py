@@ -4,6 +4,7 @@ import argparse
 import logging
 import itertools
 import numpy as np
+from sklearn.metrics import accuracy_score
 try:
     import bequick
 except ImportError:
@@ -13,24 +14,24 @@ except ImportError:
 from bequick.alphabet import Alphabet
 from bequick.embedding import load_embedding_and_build_alphabet
 try:
-    from .corpus import read_and_transform_dataset
-    from .model import FlattenBiLSTM, FlattenAverage
+    from .corpus import read_and_transform_dataset, flatten_dataset, treelike_datset
+    from .model import FlattenBiLSTM, FlattenAverage, FlattenBiGRU, DocumentTreeAverage
 except (ValueError, SystemError) as e:
-    from corpus import read_and_transform_dataset
-    from model import FlattenBiLSTM, FlattenAverage
+    from corpus import read_and_transform_dataset, flatten_dataset, treelike_dataset
+    from model import FlattenBiLSTM, FlattenAverage, FlattenBiGRU, DocumentTreeAverage
 np.random.seed(1234)
 logging.basicConfig(level=logging.INFO, format='%(asctime)-15s %(levelname)s: %(message)s')
 LOG = logging.getLogger('tang2015')
 
 
-def evaluate(dataset, model):
-    n_corr, n_total = 0, 0
-    for X, Y in dataset:
-        pred = model.classify(X)
-        if pred == Y:
-            n_corr += 1
-        n_total += 1
-    return float(n_corr) / n_total
+def evaluate(X, L, Y, model, n_classes, batch_size):
+    n = Y.shape[0]
+    prediction = np.full(n, n_classes + 1, dtype=np.int32)
+    for batch_start in range(0, n, batch_size):
+        batch_end = batch_start + batch_size if batch_start + batch_size < n else n
+        prediction[batch_start: batch_end] = model.classify(X[batch_start: batch_end],
+                                                            L[batch_start: batch_end])
+    return accuracy_score(Y, prediction)
 
 
 def main():
@@ -43,10 +44,11 @@ def main():
     cmd.add_argument("--algorithm", default="adam",
                      help="the algorithm [clipping_sgd, adagrad, adadelta, adam].")
     cmd.add_argument("--embedding", help="the path to the word embedding.")
-    cmd.add_argument("--epoch", type=int, default=10, help="the epoch.")
-    cmd.add_argument("train", default="snli_1.0_train.jsonl", help="the path to the training file.")
-    cmd.add_argument("devel", default="snli_1.0_dev.jsonl", help="the path to the development file.")
-    cmd.add_argument("test", default="snli_1.0_test.jsonl", help="the path to the testing file.")
+    cmd.add_argument("--epochs", type=int, default=10, help="the epoch.")
+    cmd.add_argument("--report_stops", type=int, default=-1, help="The number of stops")
+    cmd.add_argument("train", help="the path to the training file.")
+    cmd.add_argument("devel", help="the path to the development file.")
+    cmd.add_argument("test", help="the path to the testing file.")
     args = cmd.parse_args()
 
     alphabet = Alphabet(use_default_initialization=True)
@@ -55,49 +57,89 @@ def main():
     train_set = read_and_transform_dataset(args.train, alphabet, False, False)
     devel_set = read_and_transform_dataset(args.devel, alphabet, False, False)
     test_set = read_and_transform_dataset(args.test, alphabet, False, False)
-
+    LOG.info("dataset is loaded: # train={0}, # dev={1}, # test={2}".format(len(train_set), len(devel_set),
+                                                                            len(test_set)))
     form_size = len(alphabet)
     LOG.info("vocabulary size: {0}".format(form_size))
-    n_classes, max_steps = 0, 0
-    for X, Y in itertools.chain(train_set, devel_set, test_set):
-        flatten_X = [item for sublist in X for item in sublist]
-        max_steps = max(max_steps, len(flatten_X))
-        n_classes = max(n_classes, Y + 1)
-    LOG.info("number of classes: {0}".format(n_classes))
-    LOG.info("max steps: {0}".format(max_steps))
 
-    if args.model == 'flat_avg':
-        model = FlattenAverage(algorithm=args.algorithm,
-                               form_size=form_size,
-                               form_dim=args.form_dim,
-                               hidden_dim=args.hidden_dim,
-                               output_dim=n_classes,
-                               max_steps=max_steps)
+    if args.model.startswith('flat'):
+        n_classes, max_steps = 0, 0
+        for X, L, Y in itertools.chain(train_set, devel_set, test_set):
+            max_steps = max(max_steps, sum(L))
+            n_classes = max(n_classes, Y + 1)
+        LOG.info("number of classes: {0}".format(n_classes))
+        LOG.info("max steps: {0}".format(max_steps))
+
+        train_X, train_L, train_Y = flatten_dataset(train_set, max_steps)
+        devel_X, devel_L, devel_Y = flatten_dataset(devel_set, max_steps)
+        test_X, test_L, test_Y = flatten_dataset(test_set, max_steps)
+        LOG.info("dataset is flattened.")
+
+        if args.model == 'flat_avg':
+            model = FlattenAverage(algorithm=args.algorithm,
+                                   form_size=form_size, form_dim=args.form_dim, hidden_dim=args.hidden_dim,
+                                   output_dim=n_classes,
+                                   max_steps=max_steps,
+                                   batch_size=args.batch_size)
+        elif args.model == 'flat_bigru':
+            model = FlattenBiGRU(algorithm=args.algorithm, n_layers=1,
+                                 form_size=form_size, form_dim=args.form_dim, hidden_dim=args.hidden_dim,
+                                 output_dim=n_classes,
+                                 max_steps=max_steps,
+                                 batch_size=args.batch_size)
+        else:
+            model = FlattenBiLSTM(algorithm=args.algorithm, n_layers=1,
+                                  form_size=form_size, form_dim=args.form_dim, hidden_dim=args.hidden_dim,
+                                  output_dim=n_classes,
+                                  max_steps=max_steps,
+                                  batch_size=args.batch_size)
     else:
-        model = FlattenBiLSTM(algorithm=args.algorithm,
-                              form_size=form_size,
-                              form_dim=args.form_dim,
-                              hidden_dim=args.hidden_dim,
-                              output_dim=n_classes,
-                              max_steps=max_steps)
+        n_classes, max_sentences, max_words = 0, 0, 0
+        for X, L, Y in itertools.chain(train_set, devel_set, test_set):
+            max_sentences = max(max_sentences, sum(L))
+            max_words = max(max_words, np.max(L))
+            n_classes = max(n_classes, Y + 1)
+        LOG.info("number of classes: {0}".format(n_classes))
+        LOG.info("max number of sentences: {0}".format(max_sentences))
+        LOG.info("max number of words: {0}".format(max_words))
+
+        train_X, train_L, train_Y = treelike_dataset(train_set, max_sentences, max_words)
+        devel_X, devel_L, devel_Y = treelike_dataset(devel_set, max_sentences, max_words)
+        test_X, test_L, test_Y = treelike_dataset(test_set, max_sentences, max_words)
+        LOG.info("dataset is flattened.")
+
+        if args.model == 'doctree_avg':
+            pass
+
     model.initialize_word_embeddings(indices, embeddings)
     LOG.info("word embedding initialized.")
 
-    n_train, n_devel, n_test = len(train_set), len(devel_set), len(test_set)
+    n_train, n_devel, n_test = train_Y.shape[0], devel_Y.shape[0], test_Y.shape[0]
     order = np.arange(n_train, dtype=np.int32)
 
     best_dev_p, test_p = None, None
-    for e in range(args.epoch):
+    n_stops = 0
+    for epoch in range(args.epochs):
+        LOG.info("start iteration # {0}".format(epoch))
         np.random.shuffle(order)
         cost = 0.
-        for o in order:
-            X, Y = train_set[o]
-            cost += model.train(X, Y)
-        LOG.info("cost after iteration {0}: {1:.4f}".format(e, cost))
-        p = evaluate(devel_set, model)
+        for batch_start in range(0, n_train, args.batch_size):
+            batch_end = batch_start + args.batch_size if batch_start + args.batch_size < n_train else n_train
+            batch = order[batch_start: batch_end]
+            X, L, Y = train_X[batch], train_L[batch], train_Y[batch]
+            cost += model.train(X, L, Y)
+            n_stops += 1
+            if args.report_stops > 0 and n_stops % args.report_stops == 0:
+                p = evaluate(devel_X, devel_L, devel_Y, model, n_classes, args.batch_size)
+                if best_dev_p is None or best_dev_p < p:
+                    best_dev_p = p
+                    test_p = evaluate(test_X, test_L, test_Y, model, n_classes, args.batch_size)
+                    LOG.info("new best on devel is achieved: {0:.4f}, test: {1:.4f}".format(best_dev_p, test_p))
+        p = evaluate(devel_X, devel_L, devel_Y, model, n_classes, args.batch_size)
+        LOG.info("after iteration {0}: cost={1:.4f}, devp={2:.4f}".format(epoch, cost, p))
         if best_dev_p is None or best_dev_p < p:
             best_dev_p = p
-            test_p = evaluate(test_set, model)
+            test_p = evaluate(test_X, test_L, test_Y, model, n_classes, args.batch_size)
             LOG.info("new best on devel is achieved: {0:.4f}, test: {1:.4f}".format(best_dev_p, test_p))
     LOG.info("training done, best devel p: {0:.4f}, test p: {1:.4f}".format(best_dev_p, test_p))
 

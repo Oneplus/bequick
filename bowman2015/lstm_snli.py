@@ -61,10 +61,10 @@ class Model(object):
 
         def get_stacked_lstm_cell():
             # RNN for the 1st sentence.
-            fw_lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(hidden_dim, state_is_tuple=True)
-            bw_lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(hidden_dim, state_is_tuple=True)
-            fw_stacked_lstm_cell = tf.nn.rnn_cell.MultiRNNCell([fw_lstm_cell] * n_layers, state_is_tuple=True)
-            bw_stacked_lstm_cell = tf.nn.rnn_cell.MultiRNNCell([bw_lstm_cell] * n_layers, state_is_tuple=True)
+            fw_lstm_cell = tf.contrib.rnn.BasicLSTMCell(hidden_dim, state_is_tuple=True)
+            bw_lstm_cell = tf.contrib.rnn.BasicLSTMCell(hidden_dim, state_is_tuple=True)
+            fw_stacked_lstm_cell = tf.contrib.rnn.MultiRNNCell([fw_lstm_cell] * n_layers, state_is_tuple=True)
+            bw_stacked_lstm_cell = tf.contrib.rnn.MultiRNNCell([bw_lstm_cell] * n_layers, state_is_tuple=True)
             return fw_stacked_lstm_cell, bw_stacked_lstm_cell
 
         # s1_fw_cell, s1_bw_cell = get_stacked_lstm_cell()
@@ -72,16 +72,16 @@ class Model(object):
         fw_cell, bw_cell = get_stacked_lstm_cell()
 
         with tf.variable_scope('sentence1'):
-            outputs1, _, _ = tf.nn.bidirectional_rnn(fw_cell, bw_cell, inputs1,
-                                                     sequence_length=self.L1, dtype=tf.float32)
+            outputs1, _, _ = tf.contrib.rnn.static_bidirectional_rnn(fw_cell, bw_cell, inputs1,
+                                                                     sequence_length=self.L1, dtype=tf.float32)
         with tf.variable_scope('sentence2'):
-            outputs2, _, _ = tf.nn.bidirectional_rnn(fw_cell, bw_cell, inputs2,
-                                                     sequence_length=self.L2, dtype=tf.float32)
-        output1_bw = tf.split(1, 2, outputs1[0])[1]
-        output1_fw = tf.split(1, 2, outputs1[-1])[0]
-        output2_bw = tf.split(1, 2, outputs2[0])[1]
-        output2_fw = tf.split(1, 2, outputs2[-1])[0]
-        output = tf.concat(1, [output1_fw, output1_bw, output2_fw, output2_bw])
+            outputs2, _, _ = tf.contrib.rnn.static_bidirectional_rnn(fw_cell, bw_cell, inputs2,
+                                                                     sequence_length=self.L2, dtype=tf.float32)
+        output1_bw = tf.split(outputs1[0], 2, 1)[1]
+        output1_fw = tf.split(outputs1[-1], 2, 1)[0]
+        output2_bw = tf.split(outputs2[0], 2, 1)[1]
+        output2_fw = tf.split(outputs2[-1], 2, 1)[0]
+        output = tf.concat([output1_fw, output1_bw, output2_fw, output2_bw], 1)
         # shape(output) => (32, 400)
         output = tf.nn.relu(output)
         # shape(output) => (32, 400)
@@ -101,7 +101,7 @@ class Model(object):
         # LOSS
         reg = regularizer * (tf.nn.l2_loss(self.W0) + tf.nn.l2_loss(self.b0) +
                              tf.nn.l2_loss(self.W1) + tf.nn.l2_loss(self.b1))
-        self.loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits, self.Y)) + reg
+        self.loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=self.Y)) + reg
 
         if algorithm == "adagrad":
             self.optimization = tf.train.AdagradOptimizer(learning_rate=0.01).minimize(self.loss)
@@ -117,7 +117,6 @@ class Model(object):
             gradients, _ = tf.clip_by_global_norm(tf.gradients(self.loss, variables), 5.)
             self.optimization = opt.apply_gradients(zip(gradients, variables), global_step=global_step)
 
-    def init(self):
         self.session = tf.Session()
         self.session.run(tf.global_variables_initializer())
 
@@ -199,7 +198,7 @@ def main():
     cmd.add_argument("--batch_size", type=int, default=32, help='the batch size.')
     cmd.add_argument("--algorithm", default="adam",
                      help="the algorithm [clipping_sgd, adagrad, adadelta, adam].")
-    cmd.add_argument("--max_iter", default=10, type=int, help="the maximum iteration.")
+    cmd.add_argument("--epochs", default=10, type=int, help="the maximum iteration.")
     cmd.add_argument("--embedding", help="the path to the word embedding.")
     cmd.add_argument("train", default="snli_1.0_train.jsonl", help="the path to the training file.")
     cmd.add_argument("devel", default="snli_1.0_dev.jsonl", help="the path to the development file.")
@@ -237,7 +236,6 @@ def main():
                   max_sentence2_steps=max_sentence2_steps,
                   batch_size=args.batch_size,
                   regularizer=0.0)
-    model.init()
     LOG.info("model is initialized.")
 
     if args.embedding is not None:
@@ -247,7 +245,7 @@ def main():
 
     n_train, n_devel, n_test = train_Y.shape[0], devel_Y.shape[0], test_Y.shape[0]
     order = np.arange(n_train, dtype=np.int32)
-    for iteration in range(args.max_iter):
+    for iteration in range(args.epochs):
         np.random.shuffle(order)
         cost = 0.
         for batch_start in range(0, n_train, args.batch_size):

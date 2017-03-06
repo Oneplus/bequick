@@ -166,13 +166,13 @@ class FlattenBiGRU(FlattenModel):
 
 
 class TreeModel(Model):
-    def __init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words, batch_size):
-        Model.__init__(self, algorithm, hidden_dim, output_dim)
+    def __init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words, batch_size,
+                 debug):
+        Model.__init__(self, algorithm, hidden_dim, output_dim, batch_size, debug)
         self.form_size = form_size
         self.form_dim = form_dim
         self.max_sentences = max_sentences
         self.max_words = max_words
-        self.batch_size = batch_size
         self.n_layers = 1
         self.prediction, self.loss, self.accuracy, self.optimization = None, None, None, None
         self.merge_summary = None
@@ -281,9 +281,9 @@ class TreeModel(Model):
 
 class TreeAveragePipeGRU(TreeModel):
     def __init__(self, algorithm, n_layers, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words,
-                 batch_size):
+                 batch_size, debug):
         TreeModel.__init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words,
-                           batch_size)
+                           batch_size, debug)
         self.n_layers = n_layers
         self.X, self.L, self.L2, self.Y = self._input_placeholder()
         with tf.device('/cpu:0'), tf.name_scope('embedding'):
@@ -303,9 +303,9 @@ class TreeAveragePipeGRU(TreeModel):
 
 class TreeGRUPipeAverage(TreeModel):
     def __init__(self, algorithm, n_layers, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words,
-                 batch_size):
+                 batch_size, debug):
         TreeModel.__init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words,
-                           batch_size)
+                           batch_size, debug)
         self.n_layers = n_layers
         self.X, self.L, self.L2, self.Y = self._input_placeholder()
         with tf.device('/cpu:0'), tf.name_scope('embedding'):
@@ -325,9 +325,9 @@ class TreeGRUPipeAverage(TreeModel):
 
 class TreeGRUPipeGRU(TreeModel):
     def __init__(self, algorithm, n_layers, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words,
-                 batch_size):
+                 batch_size, debug):
         TreeModel.__init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words,
-                           batch_size)
+                           batch_size, debug)
         self.n_layers = n_layers
         self.X, self.L, self.L2, self.Y = self._input_placeholder()
         with tf.device('/cpu:0'), tf.name_scope('embedding'):

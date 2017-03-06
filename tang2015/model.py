@@ -1,10 +1,17 @@
 #!/usr/bin/env python
 import tensorflow as tf
 import numpy as np
-tf.set_random_seed(1234)
 
 
 class Model(object):
+    def __init__(self, algorithm, hidden_dim, output_dim, batch_size, debug):
+        self.algorithm = algorithm
+        self.hidden_dim = hidden_dim
+        self.output_dim = output_dim
+        self.batch_size = batch_size
+        self.debug = debug
+        self.emb = None
+
     def _optimizer_op(self, loss):
         if self.algorithm == "adagrad":
             optimization = tf.train.AdagradOptimizer(learning_rate=0.01).minimize(loss)
@@ -30,25 +37,35 @@ class Model(object):
                                                    biases_initializer=tf.constant_initializer(0.))
         return logits
 
-    def _session(self):
-        gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.333)
-        self.session = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
-        self.session.run(tf.global_variables_initializer())
+    @staticmethod
+    def _loss_op(logits, y):
+        return tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=y))
 
-    def initialize_word_embeddings(self, indices, matrix):
-        self.session.run(tf.scatter_update(self.emb, indices, matrix))
+    @staticmethod
+    def _accuracy_op(prediction, y):
+        acc = tf.equal(tf.argmax(prediction, 1), tf.cast(y, tf.int64))
+        return tf.reduce_mean(tf.cast(acc, tf.float32))
+
+    @staticmethod
+    def _merged_summary_op(loss, accuracy):
+        if loss is not None:
+            tf.summary.scalar("summary_loss", loss)
+        if accuracy is not None:
+            tf.summary.scalar("summary_acc", accuracy)
+        return tf.summary.merge_all()
+
+    def initialize_word_embeddings(self, session, indices, matrix):
+        session.run(tf.scatter_update(self.emb, indices, matrix))
 
 
 class FlattenModel(Model):
-    def __init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_steps, batch_size=1):
-        self.algorithm = algorithm
+    def __init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_steps, batch_size, debug):
+        Model.__init__(self, algorithm, hidden_dim, output_dim, batch_size, debug)
         self.form_size = form_size
         self.form_dim = form_dim
-        self.hidden_dim = hidden_dim
-        self.output_dim = output_dim
         self.max_steps = max_steps
-        self.batch_size = batch_size
-        self.optimization, self.loss, self.prediction = None, None, None
+        self.prediction, self.loss, self.accuracy, self.optimization = None, None, None, None
+        self.merge_summary = None
         self.X, self.L, self.Y = None, None, None
 
     def _input_placeholder(self):
@@ -58,7 +75,7 @@ class FlattenModel(Model):
             Y = tf.placeholder(tf.int32, shape=(self.batch_size,), name='Y')
         return X, L, Y
 
-    def train(self, documents, lengths, labels):
+    def train(self, session, documents, lengths, labels, run_options=None, run_metadata=None):
         effective_n = documents.shape[0]
         if effective_n < self.batch_size:
             new_documents = np.zeros(shape=(self.batch_size, self.max_steps), dtype=np.int32)
@@ -68,11 +85,21 @@ class FlattenModel(Model):
             new_labels = np.zeros(shape=self.batch_size, dtype=np.int32)
             new_labels[: effective_n] = labels
             documents, lengths, labels = new_documents, new_lengths, new_labels
-        _, cost = self.session.run([self.optimization, self.loss],
-                                   feed_dict={self.X: documents, self.L: lengths, self.Y: labels})
-        return cost
+        if self.debug:
+            if run_options is not None and run_metadata is not None:
+                _, cost, acc, summary = session.run([self.optimization, self.loss, self.accuracy, self.merge_summary],
+                                                    feed_dict={self.X: documents, self.L: lengths, self.Y: labels},
+                                                    options=run_options, run_metadata=run_metadata)
+            else:
+                _, cost, acc, summary = session.run([self.optimization, self.loss, self.accuracy, self.merge_summary],
+                                                    feed_dict={self.X: documents, self.L: lengths, self.Y: labels})
+        else:
+            _, cost, acc = session.run([self.optimization, self.loss, self.accuracy],
+                                       feed_dict={self.X: documents, self.L: lengths, self.Y: labels})
+            summary = None
+        return cost, acc, summary
 
-    def classify(self, documents, lengths):
+    def classify(self, session, documents, lengths):
         effective_n = documents.shape[0]
         if effective_n < self.batch_size:
             new_documents = np.zeros(shape=(self.batch_size, self.max_steps), dtype=np.int32)
@@ -80,15 +107,16 @@ class FlattenModel(Model):
             new_lengths = np.zeros(shape=self.batch_size, dtype=np.int32)
             new_lengths[: effective_n] = lengths
             documents, lengths = new_documents, new_lengths
-        ret = self.session.run(self.prediction, feed_dict={self.X: documents, self.L: lengths})
+        ret = session.run(self.prediction, feed_dict={self.X: documents, self.L: lengths})
         if effective_n < self.batch_size:
             return ret.argmax(axis=1)[:effective_n]
         return ret.argmax(axis=1)
 
 
 class FlattenAverage(FlattenModel):
-    def __init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_steps, batch_size=1):
-        FlattenModel.__init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_steps, batch_size)
+    def __init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_steps, batch_size, debug):
+        FlattenModel.__init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_steps, batch_size,
+                              debug)
         self.X, self.L, self.Y = self._input_placeholder()
 
         with tf.device('/cpu:0'), tf.name_scope('embedding'):
@@ -98,14 +126,17 @@ class FlattenAverage(FlattenModel):
         self.document_expr = tf.reduce_sum(inputs, axis=1) / tf.expand_dims(tf.cast(self.L, tf.float32), 1)
         self.logits = self._mlp_op(self.document_expr)
         self.prediction = tf.nn.softmax(self.logits)
-        self.loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits, labels=self.Y))
+        self.loss = self._loss_op(self.logits, self.Y)
+        self.accuracy = self._accuracy_op(self.prediction, self.Y)
+        if self.debug:
+            self.merge_summary = self._merged_summary_op(self.loss, self.accuracy)
         self.optimization = self._optimizer_op(self.loss)
-        self._session()
 
 
 class FlattenBiGRU(FlattenModel):
-    def __init__(self, algorithm, n_layers, form_size, form_dim, hidden_dim, output_dim, max_steps, batch_size=1):
-        FlattenModel.__init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_steps, batch_size)
+    def __init__(self, algorithm, n_layers, form_size, form_dim, hidden_dim, output_dim, max_steps, batch_size, debug):
+        FlattenModel.__init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_steps, batch_size,
+                              debug)
         self.n_layers = n_layers
         self.X, self.L, self.Y = self._input_placeholder()
 
@@ -127,55 +158,24 @@ class FlattenBiGRU(FlattenModel):
         self.document_expr = tf.concat([output_fw, output_bw], 1)
         self.logits = self._mlp_op(self.document_expr)
         self.prediction = tf.nn.softmax(self.logits)
-        self.loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits, labels=self.Y))
+        self.loss = self._loss_op(self.logits, self.Y)
+        self.accuracy = self._accuracy_op(self.prediction, self.Y)
+        if self.debug:
+            self.merge_summary = self._merged_summary_op(self.loss, self.accuracy)
         self.optimization = self._optimizer_op(self.loss)
-        self._session()
-
-
-class FlattenBiLSTM(FlattenModel):
-    def __init__(self, algorithm, n_layers, form_size, form_dim, hidden_dim, output_dim, max_steps,
-                 batch_size=1):
-        FlattenModel.__init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_steps,
-                              batch_size)
-        self.n_layers = n_layers
-        self.X, self.L, self.Y = self._input_placeholder()
-
-        with tf.device('/cpu:0'), tf.name_scope('embedding'):
-            self.emb = tf.get_variable("emb", shape=(form_size, form_dim),
-                                       initializer=tf.constant_initializer(0.), trainable=False)
-        inputs = tf.nn.embedding_lookup(self.emb, self.X)
-        # inputs = [tf.squeeze(input_, [1]) for input_ in tf.split(inputs, max_steps, 1)]
-        # RNN for the 1st sentence.
-        fw_cell = tf.contrib.rnn.BasicLSTMCell(hidden_dim, state_is_tuple=True)
-        bw_cell = tf.contrib.rnn.BasicLSTMCell(hidden_dim, state_is_tuple=True)
-        fw_stacked_cell = tf.contrib.rnn.MultiRNNCell([fw_cell] * n_layers, state_is_tuple=True)
-        bw_stacked_cell = tf.contrib.rnn.MultiRNNCell([bw_cell] * n_layers, state_is_tuple=True)
-        output_fw, output_bw = tf.nn.bidirectional_dynamic_rnn(fw_stacked_cell, bw_stacked_cell, inputs,
-                                                               sequence_length=self.L, dtype=tf.float32)[0]
-        indices_fw = tf.range(0, self.batch_size) * self.max_steps + (self.L - 1)
-        indices_bw = tf.range(0, self.batch_size) * self.max_steps
-        output_fw = tf.gather(tf.reshape(output_fw, [-1, self.hidden_dim]), indices_fw)
-        output_bw = tf.gather(tf.reshape(output_bw, [-1, self.hidden_dim]), indices_bw)
-        self.document_expr = tf.concat([output_fw, output_bw], 1)
-        self.logits = self._mlp_op(self.document_expr)
-        self.prediction = tf.nn.softmax(self.logits)
-        self.loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits, labels=self.Y))
-        self.optimization = self._optimizer_op(self.loss)
-        self._session()
 
 
 class TreeModel(Model):
-    def __init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words,
-                 batch_size):
-        self.algorithm = algorithm
+    def __init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words, batch_size):
+        Model.__init__(self, algorithm, hidden_dim, output_dim)
         self.form_size = form_size
         self.form_dim = form_dim
-        self.hidden_dim = hidden_dim
-        self.output_dim = output_dim
         self.max_sentences = max_sentences
         self.max_words = max_words
         self.batch_size = batch_size
-        self.optimization, self.loss, self.prediction = None, None, None
+        self.n_layers = 1
+        self.prediction, self.loss, self.accuracy, self.optimization = None, None, None, None
+        self.merge_summary = None
         self.X, self.L, self.L2, self.Y = None, None, None, None
 
     def _input_placeholder(self):
@@ -235,7 +235,7 @@ class TreeModel(Model):
         output_bw = tf.gather(tf.reshape(output_bw, [-1, self.hidden_dim]), indices_bw)
         return tf.concat([output_fw, output_bw], 1)
 
-    def train(self, documents, lengths, lengths2, labels):
+    def train(self, session, documents, lengths, lengths2, labels, run_options=None, run_metadata=None):
         effective_n = documents.shape[0]
         if effective_n < self.batch_size:
             new_documents = np.zeros(shape=(self.batch_size, self.max_sentences, self.max_words), dtype=np.int32)
@@ -247,11 +247,23 @@ class TreeModel(Model):
             new_labels = np.zeros(shape=self.batch_size, dtype=np.int32)
             new_labels[: effective_n] = labels
             documents, lengths, lengths2, labels = new_documents, new_lengths, new_lengths2, new_labels
-        _, cost = self.session.run([self.optimization, self.loss], feed_dict={
-            self.X: documents, self.L: lengths, self.L2: lengths2, self.Y: labels})
-        return cost
+        if self.debug:
+            if run_options is not None and run_metadata is not None:
+                _, cost, acc, summary = session.run([self.optimization, self.loss, self.accuracy, self.merge_summary],
+                                                    feed_dict={self.X: documents, self.L: lengths, self.L2: lengths2,
+                                                               self.Y: labels},
+                                                    options=run_options, run_metadata=run_metadata)
+            else:
+                _, cost, acc, summary = session.run([self.optimization, self.loss, self.accuracy, self.merge_summary],
+                                                    feed_dict={self.X: documents, self.L: lengths, self.L2: lengths2,
+                                                               self.Y: labels})
+        else:
+            _, cost, acc = session.run([self.optimization, self.loss, self.accuracy],
+                                       feed_dict={self.X: documents, self.L: lengths, self.L2: lengths2, self.Y: labels})
+            summary = None
+        return cost, acc, summary
 
-    def classify(self, documents, lengths, lengths2):
+    def classify(self, session, documents, lengths, lengths2):
         effective_n = documents.shape[0]
         if effective_n < self.batch_size:
             new_documents = np.zeros(shape=(self.batch_size, self.max_sentences, self.max_words), dtype=np.int32)
@@ -261,8 +273,7 @@ class TreeModel(Model):
             new_lengths2 = np.zeros(shape=self.batch_size, dtype=np.int32)
             new_lengths2[: effective_n] = lengths2
             documents, lengths, lengths2 = new_documents, new_lengths, new_lengths2
-        ret = self.session.run(self.prediction, feed_dict={
-            self.X: documents, self.L: lengths, self.L2: lengths2})
+        ret = session.run(self.prediction, feed_dict={self.X: documents, self.L: lengths, self.L2: lengths2})
         if effective_n < self.batch_size:
             return ret.argmax(axis=1)[:effective_n]
         return ret.argmax(axis=1)
@@ -283,9 +294,11 @@ class TreeAveragePipeGRU(TreeModel):
         self.document = self._bi_gru_document(sentences)
         self.logits = self._mlp_op(self.document)
         self.prediction = tf.nn.softmax(self.logits)
-        self.loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits, labels=self.Y))
+        self.loss = self._loss_op(self.logits, self.Y)
+        self.accuracy = self._accuracy_op(self.prediction, self.Y)
+        if self.debug:
+            self.merge_summary = self._merged_summary_op(self.loss, self.accuracy)
         self.optimization = self._optimizer_op(self.loss)
-        self._session()
 
 
 class TreeGRUPipeAverage(TreeModel):
@@ -303,9 +316,11 @@ class TreeGRUPipeAverage(TreeModel):
         self.document = self._avg_document(sentences)
         self.logits = self._mlp_op(self.document)
         self.prediction = tf.nn.softmax(self.logits)
-        self.loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits, labels=self.Y))
+        self.loss = self._loss_op(self.logits, self.Y)
+        self.accuracy = self._accuracy_op(self.prediction, self.Y)
+        if self.debug:
+            self.merge_summary = self._merged_summary_op(self.loss, self.accuracy)
         self.optimization = self._optimizer_op(self.loss)
-        self._session()
 
 
 class TreeGRUPipeGRU(TreeModel):
@@ -323,6 +338,8 @@ class TreeGRUPipeGRU(TreeModel):
         self.document = self._bi_gru_document(sentences)
         self.logits = self._mlp_op(self.document)
         self.prediction = tf.nn.softmax(self.logits)
-        self.loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits, labels=self.Y))
+        self.loss = self._loss_op(self.logits, self.Y)
+        self.accuracy = self._accuracy_op(self.prediction, self.Y)
+        if self.debug:
+            self.merge_summary = self._merged_summary_op(self.loss, self.accuracy)
         self.optimization = self._optimizer_op(self.loss)
-        self._session()

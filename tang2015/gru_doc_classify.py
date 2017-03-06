@@ -4,6 +4,7 @@ import argparse
 import logging
 import itertools
 import numpy as np
+import tensorflow as tf
 import sklearn.metrics
 try:
     import bequick
@@ -15,33 +16,33 @@ from bequick.alphabet import Alphabet
 from bequick.embedding import load_embedding_and_build_alphabet
 try:
     from .corpus import read_and_transform_dataset, flatten_dataset, treelike_dataset
-    from .model import (FlattenBiLSTM, FlattenAverage, FlattenBiGRU, TreeAveragePipeGRU, TreeGRUPipeAverage,
-                        TreeGRUPipeGRU)
+    from .model import FlattenAverage, FlattenBiGRU, TreeAveragePipeGRU, TreeGRUPipeAverage, TreeGRUPipeGRU
 except (ValueError, SystemError) as e:
     from corpus import read_and_transform_dataset, flatten_dataset, treelike_dataset
-    from model import (FlattenBiLSTM, FlattenAverage, FlattenBiGRU, TreeAveragePipeGRU, TreeGRUPipeAverage,
-                        TreeGRUPipeGRU)
+    from model import FlattenAverage, FlattenBiGRU, TreeAveragePipeGRU, TreeGRUPipeAverage, TreeGRUPipeGRU
 np.random.seed(1234)
+tf.set_random_seed(1234)
 logging.basicConfig(level=logging.INFO, format='%(asctime)-15s %(levelname)s: %(message)s')
 LOG = logging.getLogger('tang2015')
 
 
-def evaluate(package, model, n_classes, batch_size):
-    if len(package) == 3:
+def evaluate(session, package, model, n_classes, batch_size):
+    use_flatten_model = (len(package) == 3)
+    if use_flatten_model:
         X, L, Y = package
-    elif len(package) == 4:
-        X, L, L2, Y = package
     else:
-        assert False
+        X, L, L2, Y = package
     n = Y.shape[0]
     prediction = np.full(n, n_classes + 1, dtype=np.int32)
     for batch_start in range(0, n, batch_size):
         batch_end = batch_start + batch_size if batch_start + batch_size < n else n
-        if len(package) == 3:
-            prediction[batch_start: batch_end] = model.classify(X[batch_start: batch_end],
+        if use_flatten_model:
+            prediction[batch_start: batch_end] = model.classify(session,
+                                                                X[batch_start: batch_end],
                                                                 L[batch_start: batch_end])
         else:
-            prediction[batch_start: batch_end] = model.classify(X[batch_start: batch_end],
+            prediction[batch_start: batch_end] = model.classify(session,
+                                                                X[batch_start: batch_end],
                                                                 L[batch_start: batch_end],
                                                                 L2[batch_start: batch_end])
     return sklearn.metrics.accuracy_score(Y, prediction)
@@ -61,6 +62,7 @@ def main():
     cmd.add_argument("--report_stops", type=int, default=-1, help="The number of stops")
     cmd.add_argument("--max_sentences", type=int, default=100, help="The maximum number of sentences.")
     cmd.add_argument("--max_words", type=int, default=150, help="The maximum number of words in sentence.")
+    cmd.add_argument("--debug", default=False, action="store_true", help="Use to specify debug.")
     cmd.add_argument("train", help="the path to the training file.")
     cmd.add_argument("devel", help="the path to the development file.")
     cmd.add_argument("test", help="the path to the testing file.")
@@ -91,24 +93,16 @@ def main():
         test_X, test_L, test_Y = flatten_dataset(test_set, max_steps)
         LOG.info("dataset is flattened.")
 
+        kwargs = {'algorithm': args.algorithm, 'form_size': form_size, 'form_dim': args.form_dim,
+                  'hidden_dim': args.hidden_dim, 'output_dim': n_classes, 'max_steps': max_steps,
+                  'batch_size': args.batch_size, 'debug': args.debug}
+        if args.model != 'flat_avg':
+            kwargs['n_layers'] = 1
+
         if args.model == 'flat_avg':
-            model = FlattenAverage(algorithm=args.algorithm,
-                                   form_size=form_size, form_dim=args.form_dim, hidden_dim=args.hidden_dim,
-                                   output_dim=n_classes,
-                                   max_steps=max_steps,
-                                   batch_size=args.batch_size)
-        elif args.model == 'flat_bigru':
-            model = FlattenBiGRU(algorithm=args.algorithm, n_layers=1,
-                                 form_size=form_size, form_dim=args.form_dim, hidden_dim=args.hidden_dim,
-                                 output_dim=n_classes,
-                                 max_steps=max_steps,
-                                 batch_size=args.batch_size)
+            model = FlattenAverage(**kwargs)
         else:
-            model = FlattenBiLSTM(algorithm=args.algorithm, n_layers=1,
-                                  form_size=form_size, form_dim=args.form_dim, hidden_dim=args.hidden_dim,
-                                  output_dim=n_classes,
-                                  max_steps=max_steps,
-                                  batch_size=args.batch_size)
+            model = FlattenBiGRU(**kwargs)
     else:
         n_classes, max_sentences, max_words = 0, 0, 0
         for X, L, Y in itertools.chain(train_set, devel_set, test_set):
@@ -122,27 +116,24 @@ def main():
         train_X, train_L, train_L2, train_Y = treelike_dataset(train_set, max_sentences, max_words)
         devel_X, devel_L, devel_L2, devel_Y = treelike_dataset(devel_set, max_sentences, max_words)
         test_X, test_L, test_L2, test_Y = treelike_dataset(test_set, max_sentences, max_words)
-        LOG.info("dataset is flattened.")
+        LOG.info("dataset is transformed.")
 
+        kwargs = {'algorithm': args.algorithm, 'form_size': form_size, 'form_dim': args.form_dim,
+                  'hidden_dim': args.hidden_dim, 'output_dim': n_classes, 'max_sentences': max_sentences,
+                  'max_words': max_words, 'batch_size': args.batch_size, 'debug': args.debug, 'n_layers': 1}
         if args.model == 'tree_avg_gru':
-            model = TreeAveragePipeGRU(algorithm=args.algorithm, n_layers=1,
-                                       form_size=form_size, form_dim=args.form_dim, hidden_dim=args.hidden_dim,
-                                       output_dim=n_classes,
-                                       max_sentences=max_sentences, max_words=max_words,
-                                       batch_size=args.batch_size)
+            model = TreeAveragePipeGRU(**kwargs)
         elif args.model == 'tree_gru_avg':
-            model = TreeGRUPipeAverage(algorithm=args.algorithm, n_layers=1,
-                                       form_size=form_size, form_dim=args.form_dim, hidden_dim=args.hidden_dim,
-                                       output_dim=n_classes,
-                                       max_sentences=max_sentences, max_words=max_words,
-                                       batch_size=args.batch_size)
+            model = TreeGRUPipeAverage(**kwargs)
         else:
-            model = TreeGRUPipeGRU(algorithm=args.algorithm, n_layers=1,
-                                   form_size=form_size, form_dim=args.form_dim, hidden_dim=args.hidden_dim,
-                                   output_dim=n_classes,
-                                   max_sentences=max_sentences, max_words=max_words,
-                                   batch_size=args.batch_size)
-    model.initialize_word_embeddings(indices, embeddings)
+            model = TreeGRUPipeGRU(**kwargs)
+    gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.2)
+    session = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
+    session.run(tf.global_variables_initializer())
+    if args.debug:
+        summary_writer = tf.summary.FileWriter('./logs', graph=tf.get_default_graph())
+
+    model.initialize_word_embeddings(session, indices, embeddings)
     LOG.info("word embedding initialized.")
 
     n_train, n_devel, n_test = train_Y.shape[0], devel_Y.shape[0], test_Y.shape[0]
@@ -153,35 +144,46 @@ def main():
     for epoch in range(args.epochs):
         LOG.info("start iteration #{0}".format(epoch))
         np.random.shuffle(order)
-        cost = 0.
+        cost, acc = 0., 0.
         for batch_start in range(0, n_train, args.batch_size):
             batch_end = batch_start + args.batch_size if batch_start + args.batch_size < n_train else n_train
             batch = order[batch_start: batch_end]
-            if use_flatten_model:
-                X, L, Y = train_X[batch], train_L[batch], train_Y[batch]
-                cost += model.train(X, L, Y)
-            else:
-                X, L, L2, Y = train_X[batch], train_L[batch], train_L2[batch], train_Y[batch]
-                cost += model.train(X, L, L2, Y)
+            kwargs = {'session': session, 'documents': train_X[batch], 'labels': train_Y[batch],
+                      'lengths': train_L[batch]}
+            if not use_flatten_model:
+                kwargs.update({'lengths2': train_L2[batch]})
+            if n_stops % 100 == 0:
+                run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+                run_metadata = tf.RunMetadata()
+                kwargs.update({'run_options': run_options, 'run_metadata': run_metadata})
+            ret = model.train(**kwargs)
+            cost += ret[0]
+            acc += ret[1] * batch.shape[0]
+            if args.debug:
+                if n_stops % 100 == 0:
+                    summary_writer.add_run_metadata(run_metadata, 'step{0}'.format(n_stops))
+                summary_writer.add_summary(ret[2], n_stops)
+
             n_stops += 1
             if args.report_stops > 0 and n_stops % args.report_stops == 0:
                 package = (devel_X, devel_L, devel_Y) if use_flatten_model else (
                     devel_X, devel_L, devel_L2, devel_Y)
-                p = evaluate(package, model, n_classes, args.batch_size)
+                p = evaluate(session, package, model, n_classes, args.batch_size)
                 LOG.info("evaluate on #{0}-th batches".format(n_stops / args.report_stops))
                 if best_dev_p is None or best_dev_p < p:
                     best_dev_p = p
                     package = (test_X, test_L, test_Y) if use_flatten_model else (
                         test_X, test_L, test_L2, test_Y)
-                    test_p = evaluate(package, model, n_classes, args.batch_size)
+                    test_p = evaluate(session, package, model, n_classes, args.batch_size)
                     LOG.info("new best on devel is achieved: {0:.4f}, test: {1:.4f}".format(best_dev_p, test_p))
         package = (devel_X, devel_L, devel_Y) if use_flatten_model else (devel_X, devel_L, devel_L2, devel_Y)
-        p = evaluate(package, model, n_classes, args.batch_size)
-        LOG.info("after iteration #{0}: cost={1:.4f}, devp={2:.4f}".format(epoch, cost, p))
+        p = evaluate(session, package, model, n_classes, args.batch_size)
+        LOG.info("after iteration #{0}: cost={1:.4f}, acc={2:.4f}, devp={3:.4f}".format(epoch, cost,
+                                                                                        float(acc / n_train), p))
         if best_dev_p is None or best_dev_p < p:
             best_dev_p = p
             package = (test_X, test_L, test_Y) if use_flatten_model else (test_X, test_L, test_L2, test_Y)
-            test_p = evaluate(package, model, n_classes, args.batch_size)
+            test_p = evaluate(session, package, model, n_classes, args.batch_size)
             LOG.info("new best on devel is achieved: {0:.4f}, test: {1:.4f}".format(best_dev_p, test_p))
     LOG.info("training done, best devel p: {0:.4f}, test p: {1:.4f}".format(best_dev_p, test_p))
 

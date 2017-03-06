@@ -46,18 +46,8 @@ class Model(object):
 
         with tf.device('/cpu:0'), tf.name_scope('embedding'):
             self.form_emb = tf.Variable(random_uniform_matrix(form_size, form_dim), name="form_emb")
-
-            def get_inputs(input_placeholder, max_steps):
-                # inputs for the first sentence
-                inputs = tf.nn.embedding_lookup(self.form_emb, input_placeholder)
-                # shape(inputs) => (batch_size, max_steps, form_dim)
-                inputs = [tf.squeeze(input_, [1]) for input_ in tf.split(inputs, max_steps, 1)]
-                # shape(input_) => (batch_size, 1, form_dim)
-                # after squeeze, shape(input_) => (batch_size, form_dim)
-                return inputs
-
-            inputs1 = get_inputs(self.X1, max_sentence1_steps)
-            inputs2 = get_inputs(self.X2, max_sentence2_steps)
+            inputs1 = tf.nn.embedding_lookup(self.form_emb, self.X1)
+            inputs2 = tf.nn.embedding_lookup(self.form_emb, self.X2)
 
         def get_stacked_lstm_cell():
             # RNN for the 1st sentence.
@@ -72,15 +62,21 @@ class Model(object):
         fw_cell, bw_cell = get_stacked_lstm_cell()
 
         with tf.variable_scope('sentence1'):
-            outputs1, _, _ = tf.contrib.rnn.static_bidirectional_rnn(fw_cell, bw_cell, inputs1,
-                                                                     sequence_length=self.L1, dtype=tf.float32)
+            outputs1_fw, outputs1_bw = tf.nn.bidirectional_dynamic_rnn(fw_cell, bw_cell, inputs1,
+                                                                       sequence_length=self.L1, dtype=tf.float32)[0]
         with tf.variable_scope('sentence2'):
-            outputs2, _, _ = tf.contrib.rnn.static_bidirectional_rnn(fw_cell, bw_cell, inputs2,
-                                                                     sequence_length=self.L2, dtype=tf.float32)
-        output1_bw = tf.split(outputs1[0], 2, 1)[1]
-        output1_fw = tf.split(outputs1[-1], 2, 1)[0]
-        output2_bw = tf.split(outputs2[0], 2, 1)[1]
-        output2_fw = tf.split(outputs2[-1], 2, 1)[0]
+            outputs2_fw, outputs2_bw = tf.nn.bidirectional_dynamic_rnn(fw_cell, bw_cell, inputs2,
+                                                                       sequence_length=self.L2, dtype=tf.float32)[0]
+
+        def get_output(outputs_fw, outputs_bw, max_steps, actual_steps):
+            indices_fw = tf.range(0, self.batch_size) * max_steps + (actual_steps - 1)
+            indices_bw = tf.range(0, self.batch_size) * max_steps
+            output_fw = tf.gather(tf.reshape(outputs_fw, [-1, self.hidden_dim]), indices_fw)
+            output_bw = tf.gather(tf.reshape(outputs_bw, [-1, self.hidden_dim]), indices_bw)
+            return output_fw, output_bw
+        output1_fw, output1_bw = get_output(outputs1_fw, outputs1_bw, self.max_sentence1_steps, self.L1)
+        output2_fw, output2_bw = get_output(outputs2_fw, outputs2_bw, self.max_sentence2_steps, self.L2)
+
         output = tf.concat([output1_fw, output1_bw, output2_fw, output2_bw], 1)
         # shape(output) => (32, 400)
         output = tf.nn.relu(output)

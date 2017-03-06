@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+import logging
 import numpy as np
 try:
     import bequick
@@ -7,19 +8,22 @@ except ImportError:
     import sys
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))
 from bequick.io_utils import zip_open
+LOG = logging.getLogger('tang2015')
 
 
-def read_and_transform_dataset(filename, alphabet, insert_new_token=False, add_unk_token=False):
+def read_and_transform_dataset(filename, alphabet, max_sentences, max_words,
+                               insert_new_token=False, add_unk_token=False):
     assert alphabet.get('__BAD0__') == 0, "BAD0 should be inserted to dataset before load data."
     documents = []
     raw_document = []
-
+    n_skipped = 0
     for line in zip_open(filename):
         line = line.strip()
         if len(line) == 0:
             document = []
             length = []
             label = int(raw_document[0])
+            skip = len(raw_document[1:]) > max_sentences
             for raw_sentence in raw_document[1:]:
                 raw_words = raw_sentence.split()
                 sentence = []
@@ -31,12 +35,19 @@ def read_and_transform_dataset(filename, alphabet, insert_new_token=False, add_u
                             sentence.append(alphabet.get(raw_word))
                         elif add_unk_token:
                             sentence.append(alphabet.get("__UNK__"))
+                if len(sentence) > max_words:
+                    skip = True
+                    break
                 document.append(sentence)
                 length.append(len(sentence))
-            documents.append((document, length, label))
+            if not skip:
+                documents.append((document, length, label))
+            else:
+                n_skipped += 1
             raw_document = []
         else:
             raw_document.append(line)
+    LOG.info('number of skipped words {0}'.format(n_skipped))
     return documents
 
 

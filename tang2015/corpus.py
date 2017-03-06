@@ -58,11 +58,13 @@ def flatten_dataset(dataset, max_words):
 def treelike_dataset(dataset, max_sentences, max_words):
     n_doc = len(dataset)
     X = np.zeros(shape=(n_doc, max_sentences, max_words), dtype=np.int32)
-    L = np.zeros(shape=(n_doc, max_sentences), dtype=np.int32)
+    L = np.ones(shape=(n_doc, max_sentences), dtype=np.int32)  # TRICKY: to avoid divide by zeros.
+    L2 = np.zeros(shape=n_doc, dtype=np.int32)
     Y = np.zeros(shape=n_doc, dtype=np.int32)
     for i, (document, length, label) in enumerate(dataset):
         for j, sentence in enumerate(document):
             L[i, j] = len(sentence)
             X[i, j, : len(sentence)] = np.array(sentence, dtype=np.int32)
         Y[i] = label
-    return X, L, Y
+        L2[i] = len(document)
+    return X, L, L2, Y

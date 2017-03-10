@@ -16,10 +16,12 @@ from bequick.alphabet import Alphabet
 from bequick.embedding import load_embedding_and_build_alphabet
 try:
     from .corpus import read_and_transform_dataset, flatten_dataset, treelike_dataset
-    from .model import FlattenAverage, FlattenBiGRU, TreeAveragePipeGRU, TreeGRUPipeAverage, TreeGRUPipeGRU
+    from .model import (FlattenAverage, FlattenBiGRU, TreeAveragePipeBiGRU, TreeBiGRUPipeAverage, TreeBiGRUPipeBiGRU,
+                        TreeBiGRUPipeGRU)
 except (ValueError, SystemError) as e:
     from corpus import read_and_transform_dataset, flatten_dataset, treelike_dataset
-    from model import FlattenAverage, FlattenBiGRU, TreeAveragePipeGRU, TreeGRUPipeAverage, TreeGRUPipeGRU
+    from model import (FlattenAverage, FlattenBiGRU, TreeAveragePipeBiGRU, TreeBiGRUPipeAverage, TreeBiGRUPipeBiGRU,
+                        TreeBiGRUPipeGRU)
 np.random.seed(1234)
 tf.set_random_seed(1234)
 logging.basicConfig(level=logging.INFO, format='%(asctime)-15s %(levelname)s: %(message)s')
@@ -121,12 +123,14 @@ def main():
         kwargs = {'algorithm': args.algorithm, 'form_size': form_size, 'form_dim': args.form_dim,
                   'hidden_dim': args.hidden_dim, 'output_dim': n_classes, 'max_sentences': max_sentences,
                   'max_words': max_words, 'batch_size': args.batch_size, 'debug': args.debug, 'n_layers': 1}
-        if args.model == 'tree_avg_gru':
-            model = TreeAveragePipeGRU(**kwargs)
-        elif args.model == 'tree_gru_avg':
-            model = TreeGRUPipeAverage(**kwargs)
+        if args.model == 'tree_avg_bigru':
+            model = TreeAveragePipeBiGRU(**kwargs)
+        elif args.model == 'tree_bigru_avg':
+            model = TreeBiGRUPipeAverage(**kwargs)
+        elif args.model == 'tree_bigru_gru':
+            model = TreeBiGRUPipeGRU(**kwargs)
         else:
-            model = TreeGRUPipeGRU(**kwargs)
+            model = TreeBiGRUPipeBiGRU(**kwargs)
     gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.2)
     session = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
     session.run(tf.global_variables_initializer())

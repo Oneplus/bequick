@@ -218,6 +218,16 @@ class TreeModel(Model):
         mask = tf.expand_dims(tf.to_float(tf.sequence_mask(self.L2, self.max_sentences)), 2)
         return tf.reduce_sum(sentence_tensor * mask, axis=1) / tf.cast(tf.expand_dims(self.L2, 1), tf.float32)
 
+    def _gru_document(self, sentence_tensor):
+        with tf.name_scope('document'):
+            cell = tf.contrib.rnn.GRUCell(self.hidden_dim)
+            stacked_cell = tf.contrib.rnn.MultiRNNCell([cell] * self.n_layers, state_is_tuple=True)
+            output = tf.nn.dynamic_rnn(stacked_cell, sentence_tensor, sequence_length=self.L2,
+                                       dtype=tf.float32, scope='document')[0]
+        indices = tf.range(0, self.batch_size) * self.max_sentences + (self.L2 - 1)
+        output = tf.gather(tf.reshape(output, [-1, self.hidden_dim]), indices)
+        return output
+
     def _bi_gru_document(self, sentence_tensor):
         with tf.name_scope('document'):
             fw_cell = tf.contrib.rnn.GRUCell(self.hidden_dim)
@@ -279,7 +289,7 @@ class TreeModel(Model):
         return ret.argmax(axis=1)
 
 
-class TreeAveragePipeGRU(TreeModel):
+class TreeAveragePipeBiGRU(TreeModel):
     def __init__(self, algorithm, n_layers, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words,
                  batch_size, debug):
         TreeModel.__init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words,
@@ -301,7 +311,7 @@ class TreeAveragePipeGRU(TreeModel):
         self.optimization = self._optimizer_op(self.loss)
 
 
-class TreeGRUPipeAverage(TreeModel):
+class TreeBiGRUPipeAverage(TreeModel):
     def __init__(self, algorithm, n_layers, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words,
                  batch_size, debug):
         TreeModel.__init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words,
@@ -323,7 +333,7 @@ class TreeGRUPipeAverage(TreeModel):
         self.optimization = self._optimizer_op(self.loss)
 
 
-class TreeGRUPipeGRU(TreeModel):
+class TreeBiGRUPipeBiGRU(TreeModel):
     def __init__(self, algorithm, n_layers, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words,
                  batch_size, debug):
         TreeModel.__init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words,
@@ -336,6 +346,28 @@ class TreeGRUPipeGRU(TreeModel):
         inputs = tf.nn.embedding_lookup(self.emb, self.X)
         sentences = self._bi_gru_sentence(inputs)
         self.document = self._bi_gru_document(sentences)
+        self.logits = self._mlp_op(self.document)
+        self.prediction = tf.nn.softmax(self.logits)
+        self.loss = self._loss_op(self.logits, self.Y)
+        self.accuracy = self._accuracy_op(self.prediction, self.Y)
+        if self.debug:
+            self.merge_summary = self._merged_summary_op(self.loss, self.accuracy)
+        self.optimization = self._optimizer_op(self.loss)
+
+
+class TreeBiGRUPipeGRU(TreeModel):
+    def __init__(self, algorithm, n_layers, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words,
+                 batch_size, debug):
+        TreeModel.__init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words,
+                           batch_size, debug)
+        self.n_layers = n_layers
+        self.X, self.L, self.L2, self.Y = self._input_placeholder()
+        with tf.device('/cpu:0'), tf.name_scope('embedding'):
+            self.emb = tf.get_variable("emb", shape=(form_size, form_dim),
+                                       initializer=tf.constant_initializer(0.), trainable=False)
+        inputs = tf.nn.embedding_lookup(self.emb, self.X)
+        sentences = self._bi_gru_sentence(inputs)
+        self.document = self._gru_document(sentences)
         self.logits = self._mlp_op(self.document)
         self.prediction = tf.nn.softmax(self.logits)
         self.loss = self._loss_op(self.logits, self.Y)

@@ -99,7 +99,7 @@ def main():
 
         kwargs = {'algorithm': args.algorithm, 'form_size': form_size, 'form_dim': args.form_dim,
                   'hidden_dim': args.hidden_dim, 'output_dim': n_classes, 'max_steps': max_steps,
-                  'batch_size': args.batch_size, 'debug': args.debug}
+                  'batch_size': args.batch_size, 'tune_embedding': args.tune_embedding, 'debug': args.debug}
         if args.model != 'flat_avg':
             kwargs['n_layers'] = 1
 

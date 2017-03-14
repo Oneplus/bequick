@@ -65,6 +65,8 @@ def main():
     cmd.add_argument("--max_sentences", type=int, default=100, help="The maximum number of sentences.")
     cmd.add_argument("--max_words", type=int, default=150, help="The maximum number of words in sentence.")
     cmd.add_argument("--debug", default=False, action="store_true", help="Use to specify debug.")
+    cmd.add_argument('--tune_embedding', default=False, action="store_true",
+                     help="Use to specify whether tune embedding.")
     cmd.add_argument("train", help="the path to the training file.")
     cmd.add_argument("devel", help="the path to the development file.")
     cmd.add_argument("test", help="the path to the testing file.")
@@ -122,7 +124,8 @@ def main():
 
         kwargs = {'algorithm': args.algorithm, 'form_size': form_size, 'form_dim': args.form_dim,
                   'hidden_dim': args.hidden_dim, 'output_dim': n_classes, 'max_sentences': max_sentences,
-                  'max_words': max_words, 'batch_size': args.batch_size, 'debug': args.debug, 'n_layers': 1}
+                  'max_words': max_words, 'batch_size': args.batch_size, 'tune_embedding': args.tune_embedding,
+                  'debug': args.debug, 'n_layers': 1}
         if args.model == 'tree_avg_bigru':
             model = TreeAveragePipeBiGRU(**kwargs)
         elif args.model == 'tree_bigru_avg':

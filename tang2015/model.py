@@ -114,14 +114,15 @@ class FlattenModel(Model):
 
 
 class FlattenAverage(FlattenModel):
-    def __init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_steps, batch_size, debug):
+    def __init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_steps, batch_size, tune_embedding,
+                 debug):
         FlattenModel.__init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_steps, batch_size,
                               debug)
         self.X, self.L, self.Y = self._input_placeholder()
 
         with tf.device('/cpu:0'), tf.name_scope('embedding'):
             self.emb = tf.get_variable("emb", shape=(form_size, form_dim),
-                                       initializer=tf.constant_initializer(0.), trainable=False)
+                                       initializer=tf.constant_initializer(0.), trainable=tune_embedding)
         inputs = tf.nn.embedding_lookup(self.emb, self.X)
         self.document_expr = tf.reduce_sum(inputs, axis=1) / tf.expand_dims(tf.cast(self.L, tf.float32), 1)
         self.logits = self._mlp_op(self.document_expr)
@@ -134,7 +135,8 @@ class FlattenAverage(FlattenModel):
 
 
 class FlattenBiGRU(FlattenModel):
-    def __init__(self, algorithm, n_layers, form_size, form_dim, hidden_dim, output_dim, max_steps, batch_size, debug):
+    def __init__(self, algorithm, n_layers, form_size, form_dim, hidden_dim, output_dim, max_steps, batch_size,
+                 tune_embedding, debug):
         FlattenModel.__init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_steps, batch_size,
                               debug)
         self.n_layers = n_layers
@@ -142,7 +144,7 @@ class FlattenBiGRU(FlattenModel):
 
         with tf.device('/cpu:0'), tf.name_scope('embedding'):
             self.emb = tf.get_variable("emb", shape=(form_size, form_dim),
-                                       initializer=tf.constant_initializer(0.), trainable=False)
+                                       initializer=tf.constant_initializer(0.), trainable=tune_embedding)
         inputs = tf.nn.embedding_lookup(self.emb, self.X)
         # RNN for the 1st sentence.
         fw_cell = tf.contrib.rnn.GRUCell(hidden_dim)
@@ -291,14 +293,14 @@ class TreeModel(Model):
 
 class TreeAveragePipeBiGRU(TreeModel):
     def __init__(self, algorithm, n_layers, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words,
-                 batch_size, debug):
+                 batch_size, tune_embedding, debug):
         TreeModel.__init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words,
                            batch_size, debug)
         self.n_layers = n_layers
         self.X, self.L, self.L2, self.Y = self._input_placeholder()
         with tf.device('/cpu:0'), tf.name_scope('embedding'):
             self.emb = tf.get_variable("emb", shape=(form_size, form_dim),
-                                       initializer=tf.constant_initializer(0.), trainable=False)
+                                       initializer=tf.constant_initializer(0.), trainable=tune_embedding)
         inputs = tf.nn.embedding_lookup(self.emb, self.X)
         sentences = self._avg_sentence(inputs)
         self.document = self._bi_gru_document(sentences)
@@ -313,14 +315,14 @@ class TreeAveragePipeBiGRU(TreeModel):
 
 class TreeBiGRUPipeAverage(TreeModel):
     def __init__(self, algorithm, n_layers, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words,
-                 batch_size, debug):
+                 batch_size, tune_embedding, debug):
         TreeModel.__init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words,
                            batch_size, debug)
         self.n_layers = n_layers
         self.X, self.L, self.L2, self.Y = self._input_placeholder()
         with tf.device('/cpu:0'), tf.name_scope('embedding'):
             self.emb = tf.get_variable("emb", shape=(form_size, form_dim),
-                                       initializer=tf.constant_initializer(0.), trainable=False)
+                                       initializer=tf.constant_initializer(0.), trainable=tune_embedding)
         inputs = tf.nn.embedding_lookup(self.emb, self.X)
         sentences = self._bi_gru_sentence(inputs)
         self.document = self._avg_document(sentences)
@@ -335,14 +337,14 @@ class TreeBiGRUPipeAverage(TreeModel):
 
 class TreeBiGRUPipeBiGRU(TreeModel):
     def __init__(self, algorithm, n_layers, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words,
-                 batch_size, debug):
+                 batch_size, tune_embedding, debug):
         TreeModel.__init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words,
                            batch_size, debug)
         self.n_layers = n_layers
         self.X, self.L, self.L2, self.Y = self._input_placeholder()
         with tf.device('/cpu:0'), tf.name_scope('embedding'):
             self.emb = tf.get_variable("emb", shape=(form_size, form_dim),
-                                       initializer=tf.constant_initializer(0.), trainable=False)
+                                       initializer=tf.constant_initializer(0.), trainable=tune_embedding)
         inputs = tf.nn.embedding_lookup(self.emb, self.X)
         sentences = self._bi_gru_sentence(inputs)
         self.document = self._bi_gru_document(sentences)
@@ -357,14 +359,14 @@ class TreeBiGRUPipeBiGRU(TreeModel):
 
 class TreeBiGRUPipeGRU(TreeModel):
     def __init__(self, algorithm, n_layers, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words,
-                 batch_size, debug):
+                 batch_size, tune_embedding, debug):
         TreeModel.__init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words,
                            batch_size, debug)
         self.n_layers = n_layers
         self.X, self.L, self.L2, self.Y = self._input_placeholder()
         with tf.device('/cpu:0'), tf.name_scope('embedding'):
             self.emb = tf.get_variable("emb", shape=(form_size, form_dim),
-                                       initializer=tf.constant_initializer(0.), trainable=False)
+                                       initializer=tf.constant_initializer(0.), trainable=tune_embedding)
         inputs = tf.nn.embedding_lookup(self.emb, self.X)
         sentences = self._bi_gru_sentence(inputs)
         self.document = self._gru_document(sentences)

@@ -58,116 +58,6 @@ class Model(object):
         session.run(tf.scatter_update(self.emb, indices, matrix))
 
 
-class FlattenModel(Model):
-    def __init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_steps, batch_size, debug):
-        Model.__init__(self, algorithm, hidden_dim, output_dim, batch_size, debug)
-        self.form_size = form_size
-        self.form_dim = form_dim
-        self.max_steps = max_steps
-        self.prediction, self.loss, self.accuracy, self.optimization = None, None, None, None
-        self.merge_summary = None
-        self.X, self.L, self.Y = None, None, None
-
-    def _input_placeholder(self):
-        with tf.name_scope('input'):
-            X = tf.placeholder(tf.int32, shape=(self.batch_size, self.max_steps), name="X")
-            L = tf.placeholder(tf.int32, shape=(self.batch_size,), name="L")
-            Y = tf.placeholder(tf.int32, shape=(self.batch_size,), name='Y')
-        return X, L, Y
-
-    def train(self, session, documents, lengths, labels, run_options=None, run_metadata=None):
-        effective_n = documents.shape[0]
-        if effective_n < self.batch_size:
-            new_documents = np.zeros(shape=(self.batch_size, self.max_steps), dtype=np.int32)
-            new_documents[: effective_n, ] = documents
-            new_lengths = np.zeros(shape=self.batch_size, dtype=np.int32)
-            new_lengths[: effective_n] = lengths
-            new_labels = np.zeros(shape=self.batch_size, dtype=np.int32)
-            new_labels[: effective_n] = labels
-            documents, lengths, labels = new_documents, new_lengths, new_labels
-        if self.debug:
-            if run_options is not None and run_metadata is not None:
-                _, cost, acc, summary = session.run([self.optimization, self.loss, self.accuracy, self.merge_summary],
-                                                    feed_dict={self.X: documents, self.L: lengths, self.Y: labels},
-                                                    options=run_options, run_metadata=run_metadata)
-            else:
-                _, cost, acc, summary = session.run([self.optimization, self.loss, self.accuracy, self.merge_summary],
-                                                    feed_dict={self.X: documents, self.L: lengths, self.Y: labels})
-        else:
-            _, cost, acc = session.run([self.optimization, self.loss, self.accuracy],
-                                       feed_dict={self.X: documents, self.L: lengths, self.Y: labels})
-            summary = None
-        return cost, acc, summary
-
-    def classify(self, session, documents, lengths):
-        effective_n = documents.shape[0]
-        if effective_n < self.batch_size:
-            new_documents = np.zeros(shape=(self.batch_size, self.max_steps), dtype=np.int32)
-            new_documents[: effective_n, ] = documents
-            new_lengths = np.zeros(shape=self.batch_size, dtype=np.int32)
-            new_lengths[: effective_n] = lengths
-            documents, lengths = new_documents, new_lengths
-        ret = session.run(self.prediction, feed_dict={self.X: documents, self.L: lengths})
-        if effective_n < self.batch_size:
-            return ret.argmax(axis=1)[:effective_n]
-        return ret.argmax(axis=1)
-
-
-class FlattenAverage(FlattenModel):
-    def __init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_steps, batch_size, tune_embedding,
-                 debug):
-        FlattenModel.__init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_steps, batch_size,
-                              debug)
-        self.X, self.L, self.Y = self._input_placeholder()
-
-        with tf.device('/cpu:0'), tf.name_scope('embedding'):
-            self.emb = tf.get_variable("emb", shape=(form_size, form_dim),
-                                       initializer=tf.constant_initializer(0.), trainable=tune_embedding)
-        inputs = tf.nn.embedding_lookup(self.emb, self.X)
-        mask = tf.expand_dims(tf.to_float(tf.sequence_mask(self.L, self.max_steps)), 2)
-        self.document_expr = tf.reduce_mean(inputs * mask, axis=1)
-        self.logits = self._mlp_op(self.document_expr)
-        self.prediction = tf.nn.softmax(self.logits)
-        self.loss = self._loss_op(self.logits, self.Y)
-        self.accuracy = self._accuracy_op(self.prediction, self.Y)
-        if self.debug:
-            self.merge_summary = self._merged_summary_op(self.loss, self.accuracy)
-        self.optimization = self._optimizer_op(self.loss)
-
-
-class FlattenBiGRU(FlattenModel):
-    def __init__(self, algorithm, n_layers, form_size, form_dim, hidden_dim, output_dim, max_steps, batch_size,
-                 tune_embedding, debug):
-        FlattenModel.__init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_steps, batch_size,
-                              debug)
-        self.n_layers = n_layers
-        self.X, self.L, self.Y = self._input_placeholder()
-
-        with tf.device('/cpu:0'), tf.name_scope('embedding'):
-            self.emb = tf.get_variable("emb", shape=(form_size, form_dim),
-                                       initializer=tf.constant_initializer(0.), trainable=tune_embedding)
-        inputs = tf.nn.embedding_lookup(self.emb, self.X)
-        # RNN for the 1st sentence.
-        fw_cell = tf.contrib.rnn.GRUCell(hidden_dim)
-        bw_cell = tf.contrib.rnn.GRUCell(hidden_dim)
-        fw_stacked_cell = tf.contrib.rnn.MultiRNNCell([fw_cell] * n_layers, state_is_tuple=True)
-        bw_stacked_cell = tf.contrib.rnn.MultiRNNCell([bw_cell] * n_layers, state_is_tuple=True)
-        output_fw, output_bw = tf.nn.bidirectional_dynamic_rnn(fw_stacked_cell, bw_stacked_cell, inputs,
-                                                               sequence_length=self.L, dtype=tf.float32)[0]
-        indices_fw = tf.range(0, self.batch_size) * self.max_steps + (self.L - 1)
-        indices_bw = tf.range(0, self.batch_size) * self.max_steps
-        output_fw = tf.gather(tf.reshape(output_fw, [-1, self.hidden_dim]), indices_fw)
-        output_bw = tf.gather(tf.reshape(output_bw, [-1, self.hidden_dim]), indices_bw)
-        self.document_expr = tf.concat([output_fw, output_bw], 1)
-        self.logits = self._mlp_op(self.document_expr)
-        self.prediction = tf.nn.softmax(self.logits)
-        self.loss = self._loss_op(self.logits, self.Y)
-        self.accuracy = self._accuracy_op(self.prediction, self.Y)
-        if self.debug:
-            self.merge_summary = self._merged_summary_op(self.loss, self.accuracy)
-        self.optimization = self._optimizer_op(self.loss)
-
-
 class TreeModel(Model):
     def __init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words, batch_size,
                  debug):
@@ -193,11 +83,10 @@ class TreeModel(Model):
         n_rows = self.batch_size * self.max_sentences
         stacked_inputs = tf.reshape(word_tensor, [n_rows, self.max_words, self.form_dim])
         stacked_lengths = tf.reshape(self.L, [n_rows, 1])
-        mask = tf.expand_dims(tf.to_float(tf.sequence_mask(stacked_lengths, self.max_sentences)), 2)
-        sentences = tf.reduce_mean(stacked_inputs * mask, axis=1)
+        sentences = tf.reduce_sum(stacked_inputs, axis=1) / tf.cast(stacked_lengths, tf.float32)
         return tf.reshape(sentences, [self.batch_size, self.max_sentences, self.form_dim])
 
-    def _bi_gru_sentence(self, word_tensor):
+    def _bi_gru_sentence_avg(self, word_tensor):
         n_rows = self.batch_size * self.max_sentences
         stacked_inputs = tf.reshape(word_tensor, [n_rows, self.max_words, self.form_dim])
         stacked_lengths = tf.reshape(self.L, [n_rows, ])
@@ -211,28 +100,47 @@ class TreeModel(Model):
                                                                    sequence_length=stacked_lengths,
                                                                    dtype=tf.float32,
                                                                    scope='sentence')[0]
-        indices_fw = tf.range(0, n_rows) * self.max_words + (stacked_lengths - 1)
-        indices_bw = tf.range(0, n_rows) * self.max_words
-        output_fw = tf.gather(tf.reshape(output_fw, [-1, self.form_dim]), indices_fw)
-        output_bw = tf.gather(tf.reshape(output_bw, [-1, self.form_dim]), indices_bw)
+        mask = tf.expand_dims(tf.to_float(tf.sequence_mask(stacked_lengths, self.max_words)), 2)
+        output_fw = tf.reduce_mean(output_fw * mask, axis=1)
+        output_bw = tf.reduce_mean(output_bw * mask, axis=1)
         return tf.reshape(tf.concat([output_fw, output_bw], 1), [self.batch_size, self.max_sentences, -1])
 
-    def _avg_document(self, sentence_tensor):
-        # Document:Averaged
-        mask = tf.expand_dims(tf.to_float(tf.sequence_mask(self.L2, self.max_sentences)), 2)
-        return tf.reduce_mean(sentence_tensor * mask, axis=1)
+    def _bi_gru_sentence_max(self, word_tensor):
+        n_rows = self.batch_size * self.max_sentences
+        stacked_inputs = tf.reshape(word_tensor, [n_rows, self.max_words, self.form_dim])
+        stacked_lengths = tf.reshape(self.L, [n_rows, ])
+        with tf.name_scope('sentence'):
+            fw_cell = tf.contrib.rnn.GRUCell(self.form_dim)
+            bw_cell = tf.contrib.rnn.GRUCell(self.form_dim)
+            fw_stacked_cell = tf.contrib.rnn.MultiRNNCell([fw_cell] * self.n_layers, state_is_tuple=True)
+            bw_stacked_cell = tf.contrib.rnn.MultiRNNCell([bw_cell] * self.n_layers, state_is_tuple=True)
+            output_fw, output_bw = tf.nn.bidirectional_dynamic_rnn(fw_stacked_cell, bw_stacked_cell,
+                                                                   stacked_inputs,
+                                                                   sequence_length=stacked_lengths,
+                                                                   dtype=tf.float32,
+                                                                   scope='sentence')[0]
+        mask = tf.expand_dims(tf.to_float(tf.sequence_mask(stacked_lengths, self.max_words)), 2)
+        output_fw = tf.reduce_max(output_fw * mask, axis=1)
+        output_bw = tf.reduce_max(output_bw * mask, axis=1)
+        return tf.reshape(tf.concat([output_fw, output_bw], 1), [self.batch_size, self.max_sentences, -1])
 
-    def _gru_document(self, sentence_tensor):
-        with tf.name_scope('document'):
-            cell = tf.contrib.rnn.GRUCell(self.hidden_dim)
-            stacked_cell = tf.contrib.rnn.MultiRNNCell([cell] * self.n_layers, state_is_tuple=True)
-            output = tf.nn.dynamic_rnn(stacked_cell, sentence_tensor, sequence_length=self.L2,
-                                       dtype=tf.float32, scope='document')[0]
-        indices = tf.range(0, self.batch_size) * self.max_sentences + (self.L2 - 1)
-        output = tf.gather(tf.reshape(output, [-1, self.hidden_dim]), indices)
-        return output
+    def _bi_gru_sentence_att(self, word_tensor):
+        n_rows = self.batch_size * self.max_sentences
+        stacked_inputs = tf.reshape(word_tensor, [n_rows, self.max_words, self.form_dim])
+        stacked_lengths = tf.reshape(self.L, [n_rows, ])
+        with tf.name_scope('sentence'):
+            fw_cell = tf.contrib.rnn.GRUCell(self.form_dim)
+            bw_cell = tf.contrib.rnn.GRUCell(self.form_dim)
+            fw_stacked_cell = tf.contrib.rnn.MultiRNNCell([fw_cell] * self.n_layers, state_is_tuple=True)
+            bw_stacked_cell = tf.contrib.rnn.MultiRNNCell([bw_cell] * self.n_layers, state_is_tuple=True)
+            output_fw, output_bw = tf.nn.bidirectional_dynamic_rnn(fw_stacked_cell, bw_stacked_cell,
+                                                                   stacked_inputs,
+                                                                   sequence_length=stacked_lengths,
+                                                                   dtype=tf.float32,
+                                                                   scope='sentence')[0]
+        raise NotImplementedError("attention not implemented.")
 
-    def _bi_gru_document(self, sentence_tensor):
+    def _bi_gru_document_avg(self, sentence_tensor):
         with tf.name_scope('document'):
             fw_cell = tf.contrib.rnn.GRUCell(self.hidden_dim)
             bw_cell = tf.contrib.rnn.GRUCell(self.hidden_dim)
@@ -243,11 +151,27 @@ class TreeModel(Model):
                                                                    sequence_length=self.L2,
                                                                    dtype=tf.float32,
                                                                    scope='document')[0]
-        indices_fw = tf.range(0, self.batch_size) * self.max_sentences + (self.L2 - 1)
-        indices_bw = tf.range(0, self.batch_size) * self.max_sentences
-        output_fw = tf.gather(tf.reshape(output_fw, [-1, self.hidden_dim]), indices_fw)
-        output_bw = tf.gather(tf.reshape(output_bw, [-1, self.hidden_dim]), indices_bw)
+        mask = tf.expand_dims(tf.to_float(tf.sequence_mask(self.L2, self.max_sentences)), 2)
+        output_fw = tf.reduce_mean(output_fw * mask, axis=1)
+        output_bw = tf.reduce_mean(output_bw * mask, axis=1)
         return tf.concat([output_fw, output_bw], 1)
+
+    def _bi_gru_document_max(self, sentence_tensor):
+        with tf.name_scope('document'):
+            fw_cell = tf.contrib.rnn.GRUCell(self.hidden_dim)
+            bw_cell = tf.contrib.rnn.GRUCell(self.hidden_dim)
+            fw_stacked_cell = tf.contrib.rnn.MultiRNNCell([fw_cell] * self.n_layers, state_is_tuple=True)
+            bw_stacked_cell = tf.contrib.rnn.MultiRNNCell([bw_cell] * self.n_layers, state_is_tuple=True)
+            output_fw, output_bw = tf.nn.bidirectional_dynamic_rnn(fw_stacked_cell, bw_stacked_cell,
+                                                                   sentence_tensor,
+                                                                   sequence_length=self.L2,
+                                                                   dtype=tf.float32,
+                                                                   scope='document')[0]
+        mask = tf.expand_dims(tf.to_float(tf.sequence_mask(self.L2, self.max_sentences)), 2)
+        output_fw = tf.reduce_max(output_fw * mask, axis=1)
+        output_bw = tf.reduce_max(output_bw * mask, axis=1)
+        return tf.concat([output_fw, output_bw], 1)
+
 
     def train(self, session, documents, lengths, lengths2, labels, run_options=None, run_metadata=None):
         effective_n = documents.shape[0]
@@ -293,7 +217,7 @@ class TreeModel(Model):
         return ret.argmax(axis=1)
 
 
-class TreeAveragePipeBiGRU(TreeModel):
+class HN_AVE(TreeModel):
     def __init__(self, algorithm, n_layers, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words,
                  batch_size, tune_embedding, debug):
         TreeModel.__init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words,
@@ -304,8 +228,8 @@ class TreeAveragePipeBiGRU(TreeModel):
             self.emb = tf.get_variable("emb", shape=(form_size, form_dim),
                                        initializer=tf.constant_initializer(0.), trainable=tune_embedding)
         inputs = tf.nn.embedding_lookup(self.emb, self.X)
-        sentences = self._avg_sentence(inputs)
-        self.document = self._bi_gru_document(sentences)
+        sentences = self._bi_gru_sentence_avg(inputs)
+        self.document = self._bi_gru_document_avg(sentences)
         self.logits = self._mlp_op(self.document)
         self.prediction = tf.nn.softmax(self.logits)
         self.loss = self._loss_op(self.logits, self.Y)
@@ -315,7 +239,7 @@ class TreeAveragePipeBiGRU(TreeModel):
         self.optimization = self._optimizer_op(self.loss)
 
 
-class TreeBiGRUPipeAverage(TreeModel):
+class HN_MAX(TreeModel):
     def __init__(self, algorithm, n_layers, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words,
                  batch_size, tune_embedding, debug):
         TreeModel.__init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words,
@@ -326,8 +250,8 @@ class TreeBiGRUPipeAverage(TreeModel):
             self.emb = tf.get_variable("emb", shape=(form_size, form_dim),
                                        initializer=tf.constant_initializer(0.), trainable=tune_embedding)
         inputs = tf.nn.embedding_lookup(self.emb, self.X)
-        sentences = self._bi_gru_sentence(inputs)
-        self.document = self._avg_document(sentences)
+        sentences = self._bi_gru_sentence_max(inputs)
+        self.document = self._bi_gru_document_max(sentences)
         self.logits = self._mlp_op(self.document)
         self.prediction = tf.nn.softmax(self.logits)
         self.loss = self._loss_op(self.logits, self.Y)
@@ -337,7 +261,7 @@ class TreeBiGRUPipeAverage(TreeModel):
         self.optimization = self._optimizer_op(self.loss)
 
 
-class TreeBiGRUPipeBiGRU(TreeModel):
+class HN_ATT(TreeModel):
     def __init__(self, algorithm, n_layers, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words,
                  batch_size, tune_embedding, debug):
         TreeModel.__init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words,
@@ -348,34 +272,4 @@ class TreeBiGRUPipeBiGRU(TreeModel):
             self.emb = tf.get_variable("emb", shape=(form_size, form_dim),
                                        initializer=tf.constant_initializer(0.), trainable=tune_embedding)
         inputs = tf.nn.embedding_lookup(self.emb, self.X)
-        sentences = self._bi_gru_sentence(inputs)
-        self.document = self._bi_gru_document(sentences)
-        self.logits = self._mlp_op(self.document)
-        self.prediction = tf.nn.softmax(self.logits)
-        self.loss = self._loss_op(self.logits, self.Y)
-        self.accuracy = self._accuracy_op(self.prediction, self.Y)
-        if self.debug:
-            self.merge_summary = self._merged_summary_op(self.loss, self.accuracy)
-        self.optimization = self._optimizer_op(self.loss)
-
-
-class TreeBiGRUPipeGRU(TreeModel):
-    def __init__(self, algorithm, n_layers, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words,
-                 batch_size, tune_embedding, debug):
-        TreeModel.__init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words,
-                           batch_size, debug)
-        self.n_layers = n_layers
-        self.X, self.L, self.L2, self.Y = self._input_placeholder()
-        with tf.device('/cpu:0'), tf.name_scope('embedding'):
-            self.emb = tf.get_variable("emb", shape=(form_size, form_dim),
-                                       initializer=tf.constant_initializer(0.), trainable=tune_embedding)
-        inputs = tf.nn.embedding_lookup(self.emb, self.X)
-        sentences = self._bi_gru_sentence(inputs)
-        self.document = self._gru_document(sentences)
-        self.logits = self._mlp_op(self.document)
-        self.prediction = tf.nn.softmax(self.logits)
-        self.loss = self._loss_op(self.logits, self.Y)
-        self.accuracy = self._accuracy_op(self.prediction, self.Y)
-        if self.debug:
-            self.merge_summary = self._merged_summary_op(self.loss, self.accuracy)
-        self.optimization = self._optimizer_op(self.loss)
+        raise NotImplementedError("HN_ATT is not implemented.")

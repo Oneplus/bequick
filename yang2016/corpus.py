@@ -38,9 +38,10 @@ def read_and_transform_dataset(filename, alphabet, max_sentences, max_words,
                 if len(sentence) > max_words:
                     skip = True
                     break
-                document.append(sentence)
-                length.append(len(sentence))
-            if not skip:
+                if len(sentence) > 0:
+                    document.append(sentence)
+                    length.append(len(sentence))
+            if not skip and len(documents) > 0:
                 documents.append((document, length, label))
             else:
                 n_skipped += 1

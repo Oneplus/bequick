@@ -75,7 +75,8 @@ def main():
     alphabet = Alphabet(use_default_initialization=True)
     indices, embeddings = load_embedding_and_build_alphabet(args.embedding, alphabet, args.form_dim)
     LOG.info("loaded {0} embedding entries".format(embeddings.shape[0]))
-    train_set = read_and_transform_dataset(args.train, alphabet, args.max_sentences, args.max_words, False, False)
+    train_set = read_and_transform_dataset(args.train, alphabet, args.max_sentences, args.max_words,
+                                           args.tune_embedding, False)
     devel_set = read_and_transform_dataset(args.devel, alphabet, args.max_sentences, args.max_words, False, False)
     test_set = read_and_transform_dataset(args.test, alphabet, args.max_sentences, args.max_words, False, False)
     LOG.info("dataset is loaded: # train={0}, # dev={1}, # test={2}".format(len(train_set), len(devel_set),

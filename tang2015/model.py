@@ -169,11 +169,12 @@ class FlattenBiGRU(FlattenModel):
 
 
 class TreeModel(Model):
-    def __init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words, batch_size,
-                 debug):
+    def __init__(self, algorithm, form_size, form_dim, sentence_dim, hidden_dim, output_dim, max_sentences, max_words,
+                 batch_size, debug):
         Model.__init__(self, algorithm, hidden_dim, output_dim, batch_size, debug)
         self.form_size = form_size
         self.form_dim = form_dim
+        self.sentence_dim = sentence_dim
         self.max_sentences = max_sentences
         self.max_words = max_words
         self.n_layers = 1
@@ -202,8 +203,8 @@ class TreeModel(Model):
         stacked_inputs = tf.reshape(word_tensor, [n_rows, self.max_words, self.form_dim])
         stacked_lengths = tf.reshape(self.L, [n_rows, ])
         with tf.name_scope('sentence'):
-            fw_cell = tf.contrib.rnn.GRUCell(self.form_dim)
-            bw_cell = tf.contrib.rnn.GRUCell(self.form_dim)
+            fw_cell = tf.contrib.rnn.GRUCell(self.sentence_dim)
+            bw_cell = tf.contrib.rnn.GRUCell(self.sentence_dim)
             fw_stacked_cell = tf.contrib.rnn.MultiRNNCell([fw_cell] * self.n_layers, state_is_tuple=True)
             bw_stacked_cell = tf.contrib.rnn.MultiRNNCell([bw_cell] * self.n_layers, state_is_tuple=True)
             output_fw, output_bw = tf.nn.bidirectional_dynamic_rnn(fw_stacked_cell, bw_stacked_cell,
@@ -213,8 +214,8 @@ class TreeModel(Model):
                                                                    scope='sentence')[0]
         indices_fw = tf.range(0, n_rows) * self.max_words + (stacked_lengths - 1)
         indices_bw = tf.range(0, n_rows) * self.max_words
-        output_fw = tf.gather(tf.reshape(output_fw, [-1, self.form_dim]), indices_fw)
-        output_bw = tf.gather(tf.reshape(output_bw, [-1, self.form_dim]), indices_bw)
+        output_fw = tf.gather(tf.reshape(output_fw, [-1, self.sentence_dim]), indices_fw)
+        output_bw = tf.gather(tf.reshape(output_bw, [-1, self.sentence_dim]), indices_bw)
         return tf.reshape(tf.concat([output_fw, output_bw], 1), [self.batch_size, self.max_sentences, -1])
 
     def _avg_document(self, sentence_tensor):
@@ -234,8 +235,8 @@ class TreeModel(Model):
 
     def _bi_gru_document(self, sentence_tensor):
         with tf.name_scope('document'):
-            fw_cell = tf.contrib.rnn.GRUCell(self.hidden_dim)
-            bw_cell = tf.contrib.rnn.GRUCell(self.hidden_dim)
+            fw_cell = tf.contrib.rnn.GRUCell(self.sentence_dim)
+            bw_cell = tf.contrib.rnn.GRUCell(self.sentence_dim)
             fw_stacked_cell = tf.contrib.rnn.MultiRNNCell([fw_cell] * self.n_layers, state_is_tuple=True)
             bw_stacked_cell = tf.contrib.rnn.MultiRNNCell([bw_cell] * self.n_layers, state_is_tuple=True)
             output_fw, output_bw = tf.nn.bidirectional_dynamic_rnn(fw_stacked_cell, bw_stacked_cell,
@@ -245,8 +246,8 @@ class TreeModel(Model):
                                                                    scope='document')[0]
         indices_fw = tf.range(0, self.batch_size) * self.max_sentences + (self.L2 - 1)
         indices_bw = tf.range(0, self.batch_size) * self.max_sentences
-        output_fw = tf.gather(tf.reshape(output_fw, [-1, self.hidden_dim]), indices_fw)
-        output_bw = tf.gather(tf.reshape(output_bw, [-1, self.hidden_dim]), indices_bw)
+        output_fw = tf.gather(tf.reshape(output_fw, [-1, self.sentence_dim]), indices_fw)
+        output_bw = tf.gather(tf.reshape(output_bw, [-1, self.sentence_dim]), indices_bw)
         return tf.concat([output_fw, output_bw], 1)
 
     def train(self, session, documents, lengths, lengths2, labels, run_options=None, run_metadata=None):
@@ -296,8 +297,8 @@ class TreeModel(Model):
 class TreeAveragePipeBiGRU(TreeModel):
     def __init__(self, algorithm, n_layers, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words,
                  batch_size, tune_embedding, debug):
-        TreeModel.__init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words,
-                           batch_size, debug)
+        TreeModel.__init__(self, algorithm, form_size, form_dim, form_dim, hidden_dim, output_dim, max_sentences,
+                           max_words, batch_size, debug)
         self.n_layers = n_layers
         self.X, self.L, self.L2, self.Y = self._input_placeholder()
         with tf.device('/cpu:0'), tf.name_scope('embedding'):
@@ -316,10 +317,10 @@ class TreeAveragePipeBiGRU(TreeModel):
 
 
 class TreeBiGRUPipeAverage(TreeModel):
-    def __init__(self, algorithm, n_layers, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words,
-                 batch_size, tune_embedding, debug):
-        TreeModel.__init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words,
-                           batch_size, debug)
+    def __init__(self, algorithm, n_layers, form_size, sentence_dim, form_dim, hidden_dim, output_dim, max_sentences,
+                 max_words, batch_size, tune_embedding, debug):
+        TreeModel.__init__(self, algorithm, form_size, form_dim, sentence_dim, hidden_dim, output_dim, max_sentences,
+                           max_words, batch_size, debug)
         self.n_layers = n_layers
         self.X, self.L, self.L2, self.Y = self._input_placeholder()
         with tf.device('/cpu:0'), tf.name_scope('embedding'):
@@ -338,10 +339,10 @@ class TreeBiGRUPipeAverage(TreeModel):
 
 
 class TreeBiGRUPipeBiGRU(TreeModel):
-    def __init__(self, algorithm, n_layers, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words,
-                 batch_size, tune_embedding, debug):
-        TreeModel.__init__(self, algorithm, form_size, form_dim, hidden_dim, output_dim, max_sentences, max_words,
-                           batch_size, debug)
+    def __init__(self, algorithm, n_layers, form_size, form_dim, sentence_dim, hidden_dim, output_dim, max_sentences,
+                 max_words, batch_size, tune_embedding, debug):
+        TreeModel.__init__(self, algorithm, form_size, form_dim, sentence_dim, hidden_dim, output_dim, max_sentences,
+                           max_words, batch_size, debug)
         self.n_layers = n_layers
         self.X, self.L, self.L2, self.Y = self._input_placeholder()
         with tf.device('/cpu:0'), tf.name_scope('embedding'):

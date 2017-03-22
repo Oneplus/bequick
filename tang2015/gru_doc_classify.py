@@ -54,6 +54,7 @@ def main():
     cmd = argparse.ArgumentParser("An implementation of Tang et al. (2015)")
     cmd.add_argument("--model", required=True, help="The model [flat_avg, flat_bilstm]")
     cmd.add_argument("--form_dim", type=int, required=True, help="the dim of the form.")
+    cmd.add_argument("--sentence_dim", type=int, required=True, help="the dim of the sentence.")
     cmd.add_argument("--hidden_dim", type=int, required=True, help="the dim of the hidden output.")
     cmd.add_argument("--layers", type=int, default=1, help='the number of layers.')
     cmd.add_argument("--batch_size", type=int, default=32, help='the batch size.')
@@ -124,19 +125,22 @@ def main():
         LOG.info("dataset is transformed.")
 
         kwargs = {'algorithm': args.algorithm, 'form_size': form_size, 'form_dim': args.form_dim,
-                  'hidden_dim': args.hidden_dim, 'output_dim': n_classes, 'max_sentences': max_sentences,
-                  'max_words': max_words, 'batch_size': args.batch_size, 'tune_embedding': args.tune_embedding,
-                  'debug': args.debug, 'n_layers': 1}
+                  'hidden_dim': args.hidden_dim, 'output_dim': n_classes,
+                  'max_sentences': max_sentences, 'max_words': max_words, 'batch_size': args.batch_size,
+                  'tune_embedding': args.tune_embedding, 'debug': args.debug, 'n_layers': 1}
         if args.model == 'tree_avg_bigru':
             model = TreeAveragePipeBiGRU(**kwargs)
         elif args.model == 'tree_bigru_avg':
+            kwargs['sentence_dim'] = args.sentence_dim,
             model = TreeBiGRUPipeAverage(**kwargs)
         elif args.model == 'tree_bigru_gru':
+            kwargs['sentence_dim'] = args.sentence_dim,
             model = TreeBiGRUPipeGRU(**kwargs)
         else:
             model = TreeBiGRUPipeBiGRU(**kwargs)
     gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.2)
     session = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
+    #session = tf.Session()
     session.run(tf.global_variables_initializer())
     if args.debug:
         summary_writer = tf.summary.FileWriter('./logs', graph=tf.get_default_graph())

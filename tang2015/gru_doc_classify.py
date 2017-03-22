@@ -74,7 +74,7 @@ def main():
     args = cmd.parse_args()
 
     alphabet = Alphabet(use_default_initialization=True)
-    indices, embeddings = load_embedding_and_build_alphabet(args.embedding, alphabet, args.form_dim)
+    indices, embeddings = load_embedding_and_build_alphabet(args.embedding, alphabet, args.form_dim, True)
     LOG.info("loaded {0} embedding entries".format(embeddings.shape[0]))
     train_set = read_and_transform_dataset(args.train, alphabet, args.max_sentences, args.max_words,
                                            args.tune_embedding, False)

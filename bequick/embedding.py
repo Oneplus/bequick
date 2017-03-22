@@ -25,13 +25,20 @@ def load_embedding(path, form_alphabet, dim, set_none_to_zeros=False):
     return np.array(indices, dtype=np.int32), matrix[:row, :]
 
 
-def load_embedding_and_build_alphabet(path, form_alphabet, dim):
+def load_embedding_and_build_alphabet(path, form_alphabet, dim, with_header=False):
     raw_embeddings = {}
-    for line in zip_open(path):
+    fp = zip_open(path)
+    if with_header:
+        line = fp.readline()
+    for line in fp:
         tokens = line.strip().split()
-        word = tokens[0]
-        key = form_alphabet.insert(word)
-        raw_embeddings[key] = np.array([float(x) for x in tokens[1:]], dtype=np.float32)
+        try:
+            word = tokens[0]
+            key = form_alphabet.insert(word)
+            raw_embeddings[key] = np.array([float(x) for x in tokens[1:]], dtype=np.float32)
+        except:
+            continue
+
     matrix = np.zeros(shape=(len(form_alphabet), dim), dtype=np.float32)
     for key in raw_embeddings:
         matrix[key, :] = raw_embeddings[key]

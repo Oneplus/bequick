@@ -128,13 +128,14 @@ def main():
                   'hidden_dim': args.hidden_dim, 'output_dim': n_classes,
                   'max_sentences': max_sentences, 'max_words': max_words, 'batch_size': args.batch_size,
                   'tune_embedding': args.tune_embedding, 'debug': args.debug, 'n_layers': 1}
+        if args.model != 'tree_avg_bigru':
+            kwargs['sentence_dim'] = args.sentence_dim
+
         if args.model == 'tree_avg_bigru':
             model = TreeAveragePipeBiGRU(**kwargs)
         elif args.model == 'tree_bigru_avg':
-            kwargs['sentence_dim'] = args.sentence_dim,
             model = TreeBiGRUPipeAverage(**kwargs)
         elif args.model == 'tree_bigru_gru':
-            kwargs['sentence_dim'] = args.sentence_dim,
             model = TreeBiGRUPipeGRU(**kwargs)
         else:
             model = TreeBiGRUPipeBiGRU(**kwargs)

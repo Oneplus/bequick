@@ -26,8 +26,8 @@ def main():
         "root_path": opt.srcDir,
         "dest_path": opt.dstDir,
         "threshold": opt.threshold,
-        "targets": { "train": "train.de-en.en", "valid": "valid.de-en.en", "test": "test.de-en.en" },
-        "sources": { "train": "train.de-en.de", "valid": "valid.de-en.de", "test": "test.de-en.de" }
+        "targets": {"train": "train.de-en.en", "valid": "valid.de-en.en", "test": "test.de-en.en"},
+        "sources": {"train": "train.de-en.de", "valid": "valid.de-en.de", "test": "test.de-en.de"}
     }
 
     logging.info("-- building target dictionary")
@@ -53,6 +53,7 @@ def main():
     pickle.dump(valid_sources, open(os.path.join(conf["dest_path"], "valid.sources.pkl"), "wb"))
     pickle.dump(test_targets,  open(os.path.join(conf["dest_path"], "test.targets.pkl"),  "wb"))
     pickle.dump(test_sources,  open(os.path.join(conf["dest_path"], "test.sources.pkl"),  "wb"))
+
 
 if __name__ == "__main__":
     main()

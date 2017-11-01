@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+from __future__ import print_function
 import random
 import argparse
 import os
@@ -6,11 +7,14 @@ import logging
 import pickle
 from ranzato2016.data_source import DataSource
 from ranzato2016.reward_factory import RewardFactory
+from ranzato2016.reinforce_criterion import ReinforceCriterion
+from ranzato2016.mixer import Mixer
 random.seed(1111)
 logging.basicConfig(format="%(asctime)-15s %(levelname)s: %(message)s", level=logging.INFO)
 
 
 def main():
+    # initialize command line options.
     cmd = argparse.ArgumentParser()
     cmd.add_argument("-datadir", default="data", help="path to binarized training data.")
     cmd.add_argument("-lr", dest="lr", default=0.2, type=float, help="learning rate.")
@@ -33,7 +37,7 @@ def main():
             "initial_learning_rate": opts.lr,
             "save_dir": "./backups/"
         },
-        "model" : {
+        "model": {
             "n_hidden": opts.nhid,
             "batch_size": opts.bsz,
             "bptt": opts.bptt,
@@ -47,46 +51,43 @@ def main():
         logging.error('[[ Data not found: fetching a fresh copy and running tokenizer ]]')
         return
 
-    dict_target = pickle.load(open(os.path.join(opts.datadir, 'dict.target.pkl')))
-    dict_source = pickle.load(open(os.path.join(opts.datadir, 'dict.source.pkl')))
+    dict_target = pickle.load(open(os.path.join(opts.datadir, 'dict.target.pkl'), 'rb'))
+    dict_source = pickle.load(open(os.path.join(opts.datadir, 'dict.source.pkl'), 'rb'))
 
     padidx_target = dict_target.nwords
     dict_target.index_to_symbol[padidx_target] = '<PAD>'
     dict_target.symbol_to_index['<PAD>'] = padidx_target
     dict_target.paddingIndex = padidx_target
     dict_target.nwords += 1
+
     padidx_source = dict_source.nwords
     dict_source.index_to_symbol[padidx_source] = '<PAD>'
     dict_source.symbol_to_index['<PAD>'] = padidx_source
     dict_source.paddingIndex = padidx_source
     dict_source.nwords += 1
-    train_data = DataSource(
-        root_path=opts.datadir,
-        data_type='train',
-        batch_size=opts.bsz,
-        bin_thresh=800,
-        sequence_length=opts.bptt,
-        dct_target=dict_target,
-        dct_source=dict_source
-    )
-    valid_data = DataSource(
-        root_path=opts.datadir,
-        data_type='valid',
-        batch_size=opts.bsz,
-        bin_thresh=800,
-        sequence_length=opts.bptt,
-        dct_target=dict_target,
-        dct_source=dict_source
-    )
-    test_data = DataSource(
-        root_path=opts.datadir,
-        data_type='test',
-        batch_size=opts.bsz,
-        bin_thresh=800,
-        sequence_length=opts.bptt,
-        dct_target=dict_target,
-        dct_source=dict_source
-    )
+
+    train_data = DataSource(root_path=opts.datadir,
+                            data_type='train',
+                            batch_size=opts.bsz,
+                            bin_thresh=800,
+                            sequence_length=opts.bptt,
+                            dct_target=dict_target,
+                            dct_source=dict_source)
+    valid_data = DataSource(root_path=opts.datadir,
+                            data_type='valid',
+                            batch_size=opts.bsz,
+                            bin_thresh=800,
+                            sequence_length=opts.bptt,
+                            dct_target=dict_target,
+                            dct_source=dict_source)
+    test_data = DataSource(root_path=opts.datadir,
+                           data_type='test',
+                           batch_size=opts.bsz,
+                           bin_thresh=800,
+                           sequence_length=opts.bptt,
+                           dct_target=dict_target,
+                           dct_source=dict_source)
+
     conf["model"]["eosIndex"] = dict_target.separaterIndex
     conf["model"]["n_tokens"] = dict_target.nwords
     conf["model"]["paddingIndex"] = dict_target.paddingIndex
@@ -100,6 +101,9 @@ def main():
                                    unk_id,
                                    opts.bsz)
     compute_reward.training_mode()
+
+    reinforce = ReinforceCriterion()
+
 
 if __name__ == "__main__":
     main()

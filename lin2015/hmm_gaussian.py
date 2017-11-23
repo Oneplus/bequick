@@ -12,16 +12,11 @@ except ImportError:
     import os
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))
 from bequick.corpus import read_conllx_dataset, get_alphabet
-try:
-    # py3
-    from .metrics import many_to_one_score
-except ValueError:
-    # py2
-    from metrics import many_to_one_score
+from metrics import many_to_one_score
 
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)-15s %(levelname)s: %(message)s')
-LOG = logging.getLogger('berg-kirkpatrick2010')
+LOG = logging.getLogger('lin2015')
 
 
 class GaussianHMM(_BaseHMM):
@@ -151,6 +146,7 @@ def main():
     Y_pred = model.predict(X, lengths)
     LOG.info("V-Measure: {0}".format(v_measure_score(Y, Y_pred)))
     LOG.info("many-to-one-Measure: {0}".format(many_to_one_score(Y, Y_pred)))
+
 
 if __name__ == "__main__":
     main()

@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+# an implementation of HMM baseline in "Unsupervised POS Induction with Word Embeddings"
+from __future__ import print_function
 import argparse
 import logging
 import numpy as np
@@ -11,12 +13,7 @@ except ImportError:
     import os
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))
 from bequick.corpus import read_conllx_dataset, get_alphabet
-try:
-    # py3
-    from .metrics import many_to_one_score
-except ValueError:
-    # py2
-    from metrics import many_to_one_score
+from metrics import many_to_one_score
 
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)-15s %(levelname)s: %(message)s')
@@ -24,6 +21,8 @@ LOG = logging.getLogger('Kupiec1992')
 
 
 def transform(dataset, form_alphabet, pos_alphabet):
+    # the data format for hmmlearn.fit is very tricky.
+    # according to: https://github.com/hmmlearn/hmmlearn/issues/128
     n_samples = sum([len(data) for data in dataset])
     n_sequences = len(dataset)
     X = np.zeros((n_samples, 1), dtype=np.int32)
@@ -40,7 +39,8 @@ def transform(dataset, form_alphabet, pos_alphabet):
 
 
 def main():
-    flags = argparse.ArgumentParser()
+    flags = argparse.ArgumentParser('an implementation of HMM baseline in '
+                                    '"Unsupervised POS Induction with Word Embeddings"')
     flags.add_argument("dataset", help="the path to the reference data.")
     flags.add_argument("--max-iter", dest="max_iter", type=int, default=50, help="the number of max iteration.")
     opts = flags.parse_args()
@@ -61,6 +61,7 @@ def main():
     Y_pred = model.predict(X, lengths)
     LOG.info("V-Measure: {0}".format(v_measure_score(Y, Y_pred)))
     LOG.info("many-to-one-Measure: {0}".format(many_to_one_score(Y, Y_pred)))
+
 
 if __name__ == "__main__":
     main()
